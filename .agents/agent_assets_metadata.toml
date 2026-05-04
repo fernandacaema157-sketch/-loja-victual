@@ -1,0 +1,56 @@
+uploads = []
+outputs = []
+
+[[generated]]
+id = "TLPJJnIVaWjokkVAOFSec"
+uri = "file://artifacts/jersey-store/public/images/hero-banner.png"
+type = "image"
+title = "hero banner sports stadium"
+
+[[generated]]
+id = "YZxAW8wTk5qqwp6h1oITD"
+uri = "file://artifacts/jersey-store/public/images/real-madrid.png"
+type = "image"
+title = "real madrid jersey"
+
+[[generated]]
+id = "jYhGf80xHs06ZPh0YPaix"
+uri = "file://artifacts/jersey-store/public/images/barcelona.png"
+type = "image"
+title = "barcelona jersey"
+
+[[generated]]
+id = "pgCESxrPaEQcQ7511IS0L"
+uri = "file://artifacts/jersey-store/public/images/psg.png"
+type = "image"
+title = "psg jersey"
+
+[[generated]]
+id = "AWTmTFjDWCcj4mPkAc8O_"
+uri = "file://artifacts/jersey-store/public/images/man-united.png"
+type = "image"
+title = "manchester united jersey"
+
+[[generated]]
+id = "Kj4F4_aip6beKvxQzuWDj"
+uri = "file://artifacts/jersey-store/public/images/brasil.png"
+type = "image"
+title = "brasil jersey"
+
+[[generated]]
+id = "QyW0KIef7mKOSC23sp550"
+uri = "file://artifacts/jersey-store/public/images/argentina.png"
+type = "image"
+title = "argentina jersey"
+
+[[generated]]
+id = "YNYPXEVfgsbK8Rf-ZCW93"
+uri = "file://artifacts/jersey-store/public/images/bayern.png"
+type = "image"
+title = "bayern munich jersey"
+
+[[generated]]
+id = "ss4gwqztlEQdyHoO2U_uf"
+uri = "file://artifacts/jersey-store/public/images/liverpool.png"
+type = "image"
+title = "liverpool jersey"

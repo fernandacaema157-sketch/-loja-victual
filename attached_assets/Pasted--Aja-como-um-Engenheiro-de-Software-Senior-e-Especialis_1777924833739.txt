@@ -1,0 +1,69 @@
+"Aja como um Engenheiro de Software Senior e Especialista em E-commerce. Crie um site de vendas de camisas esportivas (Jersey Store) moderno, focado em alta conversão e segurança.
+
+Stack Tecnológica:
+
+Frontend: React.js com Vite, Tailwind CSS e Shadcn/UI para componentes.
+
+Backend: Node.js (Express).
+
+Banco de Dados: PostgreSQL com Drizzle ORM.
+
+Autenticação: Lucide-auth ou similar com suporte a JWT e Bcrypt para hashing de senhas.
+
+Arquitetura e Funcionalidades Core:
+
+Catálogo Dinâmico: Filtros por time, seleção de tamanho (P, M, G, GG) e personalização de nome/número.
+
+Carrinho de Compras: Persistente (Local Storage + DB para usuários logados) com cálculo de frete simulado.
+
+Checkout Seguro: Fluxo de 3 etapas (Identificação, Endereço, Pagamento). Implemente um mock estruturado para Stripe ou Mercado Pago.
+
+Painel do Cliente: Histórico de pedidos e status de entrega.
+
+Admin Dashboard: Gestão de inventário, upload de imagens e visualização de vendas.
+
+Segurança e Usabilidade:
+
+Implemente Proteção contra SQL Injection (via ORM) e XSS.
+
+Rate limiting em rotas de login para evitar brute force.
+
+Validação de dados rigorosa com Zod (frontend e backend).
+
+Design Mobile-First, com carregamento otimizado de imagens (Lazy loading).
+
+SEO: Meta tags dinâmicas para cada produto.
+
+Estética: Design 'Dark Mode' elegante com detalhes em neon (estilo Nike/Adidas modern), fontes robustas e transições suaves.
+
+Por favor, comece estruturando o esquema do banco de dados e as rotas da API antes de avançar para a UI."
+
+2. Arquitetura do Sistema
+Para que o site seja vendável, ele precisa de uma estrutura limpa que outro desenvolvedor consiga entender.
+
+Frontend (Camada de Visão): Utiliza React pela modularidade. O uso de Shadcn/UI garante que o site tenha cara de "produto premium" (essencial para quem quer vender o código).
+
+Backend (Lógica de Negócio): O Node.js lida com as requisições de forma assíncrona. A lógica de estoque deve ser tratada no servidor para evitar que dois usuários comprem a última peça simultaneamente.
+
+Banco de Dados: O PostgreSQL é a escolha profissional para consistência de dados financeiros.
+
+3. Foco em Segurança e Mercado
+Para tornar o site "Pronto para o Mercado", foque nestes três pilares que o Replit irá configurar se você seguir o prompt:
+
+A. Validação de Dados
+Não confie no que o usuário digita. O uso do Zod no prompt garante que, se alguém tentar enviar um preço negativo ou um texto onde deveria ser um número, o sistema trave a requisição instantaneamente.
+
+B. Pagamento e LGPD
+O prompt pede um "Mock estruturado". Isso significa que o código já está pronto para receber as chaves da API do Stripe ou Mercado Pago. Além disso, a separação de dados sensíveis em variáveis de ambiente (.env) é crucial para a segurança.
+
+C. Usabilidade (UX)
+O foco em Mobile-First é vital. 80% das vendas de camisas de time ocorrem via celular. O Replit Agent criará menus hambúrguer eficientes e botões de "Compre Agora" sempre ao alcance do polegar.
+
+4. Dica para Venda Online
+Se o seu objetivo é vender o template/projeto em sites como CodeCanyon ou Gumroad:
+
+Documentação: Peça ao Replit para gerar um arquivo README.md detalhando como configurar as variáveis de ambiente.
+
+Seed de Dados: Peça para ele criar um script de "Seed" que preencha o site com 10 camisas de exemplo, para que o comprador veja o site "vivo" assim que rodar.
+
+Performance: Certifique-se de que o Lighthouse score (ferramenta de performance do Google) esteja alto, comprimindo as imagens das camisas.
