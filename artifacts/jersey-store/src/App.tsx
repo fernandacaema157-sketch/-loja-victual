@@ -3,8 +3,7 @@ import { Switch, Route, Router as WouterRouter, useLocation, Redirect } from "wo
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import {
   ClerkProvider, SignIn, SignUp,
-  SignedIn, SignedOut,
-  useClerk, useAuth,
+  Show, useClerk, useAuth,
 } from "@clerk/react";
 import { shadcn } from "@clerk/themes";
 import { Toaster } from "@/components/ui/toaster";
@@ -91,8 +90,8 @@ function ClerkQueryClientCacheInvalidator() {
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   return (
     <>
-      <SignedIn><Component /></SignedIn>
-      <SignedOut><Redirect to="/sign-in" /></SignedOut>
+      <Show when="signed-in"><Component /></Show>
+      <Show when="signed-out"><Redirect to="/sign-in" /></Show>
     </>
   );
 }
@@ -126,8 +125,8 @@ function SignUpPage() {
 function HomeRedirect() {
   return (
     <>
-      <SignedIn><Redirect to="/shop" /></SignedIn>
-      <SignedOut><Home /></SignedOut>
+      <Show when="signed-in"><Redirect to="/shop" /></Show>
+      <Show when="signed-out"><Home /></Show>
     </>
   );
 }

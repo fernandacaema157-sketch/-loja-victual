@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
-import { SignedIn, SignedOut, useUser, useClerk } from "@clerk/react";
+import { Show, useUser, useClerk } from "@clerk/react";
 import { ShoppingCart, Menu, X, ChevronDown, LogOut, Package, LayoutDashboard } from "lucide-react";
 import { useGetCart } from "@workspace/api-client-react";
 import logoUrl from "/logo.svg";
@@ -71,7 +71,7 @@ export default function Navbar() {
             </Link>
 
             {/* Auth */}
-            <SignedOut>
+            <Show when="signed-out">
               <div className="hidden md:flex items-center gap-2">
                 <Link href="/sign-in" className="text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors" data-testid="link-sign-in">
                   Entrar
@@ -80,9 +80,9 @@ export default function Navbar() {
                   Cadastrar
                 </Link>
               </div>
-            </SignedOut>
+            </Show>
 
-            <SignedIn>
+            <Show when="signed-in">
               <div className="relative">
                 <button
                   onClick={() => setUserMenuOpen(!userMenuOpen)}
@@ -126,7 +126,7 @@ export default function Navbar() {
                   </div>
                 )}
               </div>
-            </SignedIn>
+            </Show>
 
             {/* Mobile toggle */}
             <button
@@ -159,7 +159,7 @@ export default function Navbar() {
                 Admin
               </Link>
             )}
-            <SignedOut>
+            <Show when="signed-out">
               <div className="pt-2 flex gap-2 px-4">
                 <Link href="/sign-in" onClick={() => setMobileOpen(false)} className="flex-1 text-center py-2 text-sm font-semibold border border-border rounded-lg hover:bg-secondary transition-colors">
                   Entrar
@@ -168,8 +168,8 @@ export default function Navbar() {
                   Cadastrar
                 </Link>
               </div>
-            </SignedOut>
-            <SignedIn>
+            </Show>
+            <Show when="signed-in">
               <div className="pt-2 px-4">
                 <button
                   onClick={() => { signOut(); setMobileOpen(false); }}
@@ -178,7 +178,7 @@ export default function Navbar() {
                   Sair da conta
                 </button>
               </div>
-            </SignedIn>
+            </Show>
           </div>
         )}
       </div>
