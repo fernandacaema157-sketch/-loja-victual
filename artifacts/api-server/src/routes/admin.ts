@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, sql, count } from "drizzle-orm";
-import { db, ordersTable, orderItemsTable, productsTable } from "@workspace/db";
+import { db, ordersTable, orderItemsTable, productsTable, guestOrdersTable } from "@workspace/db";
 import { getAuth } from "@clerk/express";
 import { ListAllOrdersQueryParams, UpdateOrderStatusBody, UpdateOrderStatusParams } from "@workspace/api-zod";
 
@@ -162,6 +162,46 @@ router.patch("/admin/orders/:id/status", requireAuth, async (req, res): Promise<
       customNumber: i.customNumber ?? null,
     })),
   });
+});
+
+router.get("/admin/guest-orders", requireAuth, async (_req, res): Promise<void> => {
+  const orders = await db
+    .select()
+    .from(guestOrdersTable)
+    .orderBy(sql`${guestOrdersTable.createdAt} DESC`);
+
+  res.json(
+    orders.map((o) => ({
+      id: o.id,
+      orderNumber: o.orderNumber,
+      guestName: o.guestName,
+      whatsapp: o.whatsapp,
+      items: o.items,
+      subtotal: Number(o.subtotal),
+      total: Number(o.total),
+      status: o.status,
+      notes: o.notes ?? null,
+      createdAt: o.createdAt.toISOString(),
+    })),
+  );
+});
+
+router.patch("/admin/guest-orders/:id/status", requireAuth, async (req, res): Promise<void> => {
+  const id = Number(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const { status } = req.body;
+  if (!status) { res.status(400).json({ error: "status required" }); return; }
+
+  const [order] = await db
+    .update(guestOrdersTable)
+    .set({ status })
+    .where(eq(guestOrdersTable.id, id))
+    .returning();
+
+  if (!order) { res.status(404).json({ error: "Not found" }); return; }
+
+  res.json({ id: order.id, orderNumber: order.orderNumber, status: order.status });
 });
 
 router.get("/admin/sales-by-team", requireAuth, async (_req, res): Promise<void> => {

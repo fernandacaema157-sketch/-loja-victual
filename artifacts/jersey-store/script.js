@@ -1,4 +1,4 @@
-import { Clerk as ClerkJS } from '@clerk/clerk-js';
+// Clerk is loaded dynamically in initAuth() — no static import needed
 
 /**
  * JerseyStore — Vanilla JS SPA
@@ -22,8 +22,9 @@ import { Clerk as ClerkJS } from '@clerk/clerk-js';
 // 1. CONFIG
 // ============================================================
 
-const CLERK_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY || '';
-const CART_LS_KEY = 'jerseystore_cart'; // localStorage key for guest cart
+const CLERK_KEY       = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY || '';
+const STORE_WHATSAPP  = import.meta.env.VITE_STORE_WHATSAPP || '5511999999999';
+const CART_LS_KEY     = 'jerseystore_cart'; // localStorage key for guest cart
 const TEAM_IMAGES = {
   'Real Madrid':       '/images/real-madrid.png',
   'Barcelona':         '/images/barcelona.png',
@@ -140,10 +141,16 @@ const api = {
     payment: (id, d)  => apiFetch(`/orders/${id}/payment`, { method: 'POST', body: JSON.stringify(d) }),
   },
   admin: {
-    stats:      ()       => apiFetch('/admin/stats'),
-    orders:     (p = {}) => apiFetch(`/admin/orders?${new URLSearchParams(p)}`),
-    salesByTeam:()       => apiFetch('/admin/sales-by-team'),
-    updateStatus:(id, s) => apiFetch(`/admin/orders/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status: s }) }),
+    stats:        ()       => apiFetch('/admin/stats'),
+    orders:       (p = {}) => apiFetch(`/admin/orders?${new URLSearchParams(p)}`),
+    salesByTeam:  ()       => apiFetch('/admin/sales-by-team'),
+    updateStatus: (id, s)  => apiFetch(`/admin/orders/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status: s }) }),
+    guestOrders:  ()       => apiFetch('/admin/guest-orders'),
+    updateGuestStatus: (id, s) => apiFetch(`/admin/guest-orders/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status: s }) }),
+  },
+  guestOrders: {
+    create: (data) => apiFetch('/guest-orders', { method: 'POST', body: JSON.stringify(data) }),
+    get:    (num)  => apiFetch(`/guest-orders/${num}`),
   },
 };
 
@@ -151,11 +158,33 @@ const api = {
 // 5. AUTH  — Clerk JS (loaded from CDN as window.Clerk)
 // ============================================================
 
+/** Dynamically load the Clerk browser bundle from CDN (includes full UI components).
+ *  Setting data-clerk-publishable-key on the script element tells Clerk to
+ *  auto-initialize with our key so it never throws "Missing publishableKey". */
+function loadClerkCDN() {
+  return new Promise((resolve, reject) => {
+    // Already loaded — window.Clerk may be the auto-init instance or the class
+    if (window.Clerk) { resolve(); return; }
+
+    const script = document.createElement('script');
+    script.setAttribute('data-clerk-publishable-key', CLERK_KEY);
+    script.src = 'https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js';
+    script.crossOrigin = 'anonymous';
+    script.onload = resolve;
+    script.onerror = () => reject(new Error('Failed to load Clerk CDN'));
+    document.head.appendChild(script);
+  });
+}
+
 /** Boot Clerk, listen for auth state changes */
 async function initAuth() {
   if (!CLERK_KEY) return; // gracefully skip if no key
 
-  state.clerk = new ClerkJS(CLERK_KEY);
+  await loadClerkCDN();
+
+  // When loaded with data-clerk-publishable-key, window.Clerk is the singleton instance.
+  // Calling load() is idempotent; it resolves immediately if already done.
+  state.clerk = window.Clerk;
   await state.clerk.load();
 
   // Initial user state
@@ -905,12 +934,23 @@ async function renderCart() {
   const app    = document.getElementById('app');
   const cart   = await getEffectiveCart().catch(() => ({ items: [], subtotal: 0, itemCount: 0 }));
   let zipCode  = '';
-  let shippingOptions = [];
+  let shippingOptions  = [];
   let selectedShipping = null;
+  // Track which items are selected (all selected by default)
+  let selectedItems = new Set((cart.items || []).map(i => i.id));
+
+  // Compute subtotal only for selected items
+  const selSubtotal = () =>
+    (cart.items || [])
+      .filter(i => selectedItems.has(i.id))
+      .reduce((s, i) => s + (i.price || 0) * i.quantity, 0);
 
   const doRender = () => {
     const shipping = shippingOptions.find(o => o.id === selectedShipping);
-    const total    = (cart.subtotal || 0) + (shipping?.price || 0);
+    const subAmt   = selSubtotal();
+    const total    = subAmt + (shipping?.price || 0);
+    const selCount = (cart.items || []).filter(i => selectedItems.has(i.id)).reduce((s,i) => s + i.quantity, 0);
+    const allSelected = cart.items?.length > 0 && selectedItems.size === cart.items.length;
 
     if (!cart.items || cart.items.length === 0) {
       app.innerHTML = `
@@ -938,10 +978,22 @@ async function renderCart() {
         <div class="cart-layout">
           <!-- Items list -->
           <div style="display:flex;flex-direction:column;gap:.85rem">
+            <!-- Select all row -->
+            <label style="display:flex;align-items:center;gap:.6rem;padding:.5rem .1rem;cursor:pointer;user-select:none">
+              <input type="checkbox" id="select-all-chk" ${allSelected ? 'checked' : ''} style="width:1.1rem;height:1.1rem;accent-color:var(--primary);cursor:pointer" />
+              <span style="font-size:.82rem;font-weight:600;color:var(--muted)">Selecionar todos (${cart.items.length})</span>
+            </label>
+
             ${cart.items.map(item => {
-              const img = item.productImageUrl || item.imageUrl || teamImg(item.team);
+              const img      = item.productImageUrl || item.imageUrl || teamImg(item.team);
+              const checked  = selectedItems.has(item.id);
               return `
-              <div class="cart-item" data-item-id="${item.id}">
+              <div class="cart-item ${checked ? '' : 'cart-item-dim'}" data-item-id="${item.id}">
+                <label style="display:flex;align-items:center;padding:0 .2rem;cursor:pointer;flex-shrink:0">
+                  <input type="checkbox" class="item-select-chk" data-item-chk="${item.id}"
+                    ${checked ? 'checked' : ''}
+                    style="width:1.1rem;height:1.1rem;accent-color:var(--primary);cursor:pointer" />
+                </label>
                 <div class="cart-item-img">
                   <img src="${img}" alt="${item.productName || item.name}" />
                 </div>
@@ -998,19 +1050,27 @@ async function renderCart() {
             <div class="card">
               <div class="card-body">
                 <p class="card-title">Resumo do Pedido</p>
-                <div class="summary-row"><span class="label">Subtotal (${cart.itemCount} itens)</span><span>${fmtPrice(cart.subtotal || 0)}</span></div>
+                <div class="summary-row"><span class="label">Subtotal (${selCount} ${selCount===1?'item':'itens'} selecionados)</span><span id="sel-subtotal">${fmtPrice(subAmt)}</span></div>
                 <div class="summary-row"><span class="label">Frete</span><span>${shipping ? fmtPrice(shipping.price) : '—'}</span></div>
                 <div class="summary-total">
                   <span>Total</span>
-                  <span class="total-price">${fmtPrice(total)}</span>
+                  <span class="total-price" id="cart-total">${fmtPrice(total)}</span>
                 </div>
                 ${isLoggedIn()
                   ? `<button id="checkout-btn" class="btn btn-primary w-full" style="margin-top:1rem;justify-content:center;${!selectedShipping?'opacity:.6':''}" ${!selectedShipping?'data-no-ship="1"':''}>
                       Finalizar Pedido ${ic.arrow_right}
                     </button>`
-                  : `<div style="margin-top:1rem">
-                      <p style="font-size:.78rem;color:var(--muted);text-align:center;margin-bottom:.6rem">Faça login para finalizar a compra</p>
+                  : `<div style="margin-top:1rem;display:flex;flex-direction:column;gap:.55rem">
+                      <p style="font-size:.78rem;color:var(--muted);text-align:center">Faça login para finalizar a compra</p>
                       <a href="#sign-in" class="btn btn-primary w-full" style="justify-content:center">Entrar para Comprar</a>
+                      <div style="display:flex;align-items:center;gap:.5rem;padding:.25rem 0">
+                        <div style="flex:1;height:1px;background:var(--border)"></div>
+                        <span style="font-size:.72rem;color:var(--muted);white-space:nowrap">ou sem cadastro</span>
+                        <div style="flex:1;height:1px;background:var(--border)"></div>
+                      </div>
+                      <button id="guest-checkout-btn" class="btn btn-outline w-full" style="justify-content:center;border-color:var(--primary);color:var(--primary)">
+                        ${ic.truck} Pedir via WhatsApp
+                      </button>
                     </div>`
                 }
                 <a href="#shop" style="display:block;text-align:center;font-size:.8rem;color:var(--muted);margin-top:.75rem">Continuar comprando</a>
@@ -1021,12 +1081,54 @@ async function renderCart() {
       </div>
     </div>`;
 
-    // Attach cart listeners
+    // ── Recalculate summary without full re-render ──────────
+    const refreshSummary = () => {
+      const sub   = selSubtotal();
+      const ship  = shippingOptions.find(o => o.id === selectedShipping);
+      const tot   = sub + (ship?.price || 0);
+      const cnt   = (cart.items || []).filter(i => selectedItems.has(i.id)).reduce((s,i) => s + i.quantity, 0);
+      const subEl = document.getElementById('sel-subtotal');
+      const totEl = document.getElementById('cart-total');
+      if (subEl) subEl.textContent = fmtPrice(sub);
+      if (totEl) totEl.textContent = fmtPrice(tot);
+      // Update subtitle label
+      const row = subEl?.closest('.summary-row')?.querySelector('.label');
+      if (row) row.textContent = `Subtotal (${cnt} ${cnt===1?'item':'itens'} selecionados)`;
+      // Dim/undim items
+      cart.items?.forEach(i => {
+        const el = document.querySelector(`.cart-item[data-item-id="${i.id}"]`);
+        if (el) el.classList.toggle('cart-item-dim', !selectedItems.has(i.id));
+      });
+      // Update select-all checkbox
+      const allChk = document.getElementById('select-all-chk');
+      if (allChk) allChk.checked = cart.items?.length > 0 && selectedItems.size === cart.items.length;
+    };
+
+    // ── Select-all checkbox ─────────────────────────────────
+    document.getElementById('select-all-chk')?.addEventListener('change', e => {
+      if (e.target.checked) cart.items.forEach(i => selectedItems.add(i.id));
+      else selectedItems.clear();
+      document.querySelectorAll('.item-select-chk').forEach(chk => { chk.checked = e.target.checked; });
+      refreshSummary();
+    });
+
+    // ── Per-item checkbox ───────────────────────────────────
+    document.querySelectorAll('.item-select-chk').forEach(chk => {
+      chk.addEventListener('change', e => {
+        const id = Number(e.target.dataset.itemChk);
+        if (e.target.checked) selectedItems.add(id);
+        else selectedItems.delete(id);
+        refreshSummary();
+      });
+    });
+
+    // ── Clear all ──────────────────────────────────────────
     document.getElementById('clear-cart-btn')?.addEventListener('click', async () => {
       await cartClear();
       cart.items = [];
       cart.subtotal = 0;
       cart.itemCount = 0;
+      selectedItems.clear();
       doRender();
     });
 
@@ -1034,7 +1136,7 @@ async function renderCart() {
       btn.addEventListener('click', async () => {
         const id = Number(btn.dataset.cartMinus);
         const item = cart.items.find(i => i.id === id);
-        if (item) { item.quantity = Math.max(0, item.quantity - 1); if (item.quantity === 0) { cart.items = cart.items.filter(i => i.id !== id); } }
+        if (item) { item.quantity = Math.max(0, item.quantity - 1); if (item.quantity === 0) { cart.items = cart.items.filter(i => i.id !== id); selectedItems.delete(id); } }
         await cartUpdate(id, item?.quantity ?? 0);
         cart.subtotal = cart.items.reduce((s,i) => s + i.price*i.quantity, 0);
         cart.itemCount = cart.items.reduce((s,i) => s + i.quantity, 0);
@@ -1057,6 +1159,7 @@ async function renderCart() {
       btn.addEventListener('click', async () => {
         const id = Number(btn.dataset.cartRemove);
         cart.items = cart.items.filter(i => i.id !== id);
+        selectedItems.delete(id);
         await cartRemove(id);
         cart.subtotal = cart.items.reduce((s,i) => s + i.price*i.quantity, 0);
         cart.itemCount = cart.items.reduce((s,i) => s + i.quantity, 0);
@@ -1082,14 +1185,13 @@ async function renderCart() {
       radio.addEventListener('change', e => {
         selectedShipping = e.target.value;
         document.querySelectorAll('.shipping-option').forEach(el => el.classList.toggle('selected', el.querySelector('input').value === selectedShipping));
-        const ship = shippingOptions.find(o => o.id === selectedShipping);
-        const totalEl = document.querySelector('.total-price');
-        if (totalEl) totalEl.textContent = fmtPrice((cart.subtotal || 0) + (ship?.price || 0));
+        refreshSummary();
       });
     });
 
     document.getElementById('checkout-btn')?.addEventListener('click', () => {
       if (!selectedShipping) { toast('Calcule o frete antes de continuar', 'error'); return; }
+      if (selectedItems.size === 0) { toast('Selecione ao menos um item', 'error'); return; }
       const ship = shippingOptions.find(o => o.id === selectedShipping);
       state.checkout.shippingMethod = selectedShipping;
       state.checkout.shippingCost   = ship?.price || 0;
@@ -1097,9 +1199,145 @@ async function renderCart() {
       state.checkout.orderId = null;
       navigate('#checkout');
     });
+
+    // ── Guest checkout (WhatsApp) button ───────────────────
+    document.getElementById('guest-checkout-btn')?.addEventListener('click', () => {
+      const items = (cart.items || []).filter(i => selectedItems.has(i.id));
+      if (items.length === 0) { toast('Selecione ao menos um item', 'error'); return; }
+      showGuestCheckoutModal(items);
+    });
   };
 
   doRender();
+}
+
+// ── GUEST CHECKOUT MODAL ─────────────────────────────────────
+
+function showGuestCheckoutModal(items) {
+  // Remove any existing modal
+  document.getElementById('guest-modal-overlay')?.remove();
+
+  const subtotal = items.reduce((s, i) => s + (i.price || 0) * i.quantity, 0);
+
+  const overlay = document.createElement('div');
+  overlay.id = 'guest-modal-overlay';
+  overlay.innerHTML = `
+  <div style="position:fixed;inset:0;background:rgba(0,0,0,.75);backdrop-filter:blur(8px);z-index:300;display:flex;align-items:center;justify-content:center;padding:1rem">
+    <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-xl);width:100%;max-width:28rem;max-height:90vh;overflow-y:auto">
+      <!-- Header -->
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:1.25rem 1.5rem;border-bottom:1px solid var(--border)">
+        <h3 style="font-weight:900;font-size:1.05rem">Pedir via WhatsApp</h3>
+        <button id="guest-modal-close" class="btn btn-icon btn-ghost" style="font-size:1.1rem">✕</button>
+      </div>
+      <!-- Body -->
+      <div style="padding:1.5rem">
+        <!-- Items summary -->
+        <div style="background:var(--bg-secondary);border-radius:var(--radius);padding:.85rem;margin-bottom:1.25rem">
+          <p style="font-size:.75rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:.6rem">Itens selecionados</p>
+          ${items.map(i => `
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:.25rem 0;font-size:.82rem">
+            <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-right:.5rem">${i.productName || i.name} <span style="color:var(--muted)">Tam.${i.size} ×${i.quantity}</span></span>
+            <span style="font-weight:700;color:var(--primary);flex-shrink:0">${fmtPrice((i.price||0)*i.quantity)}</span>
+          </div>`).join('')}
+          <div style="border-top:1px solid var(--border);margin-top:.6rem;padding-top:.6rem;display:flex;justify-content:space-between;font-weight:800">
+            <span>Total</span><span style="color:var(--primary)">${fmtPrice(subtotal)}</span>
+          </div>
+        </div>
+
+        <!-- Form -->
+        <form id="guest-order-form">
+          <div style="display:grid;gap:.9rem">
+            <div class="field">
+              <label class="field-label">Seu nome *</label>
+              <input id="guest-name" name="guestName" class="field-input" placeholder="Ex: João Silva" required />
+            </div>
+            <div class="field">
+              <label class="field-label">WhatsApp (com DDD) *</label>
+              <input id="guest-whatsapp" name="whatsapp" class="field-input mono" placeholder="Ex: 11999999999" type="tel" required />
+            </div>
+            <div class="field">
+              <label class="field-label">Observações (opcional)</label>
+              <textarea id="guest-notes" class="field-textarea" rows="2" placeholder="Endereço de entrega, cor preferida..."></textarea>
+            </div>
+          </div>
+          <div style="display:flex;gap:.75rem;margin-top:1.25rem">
+            <button type="button" id="guest-modal-cancel" class="btn btn-outline" style="flex:1">Cancelar</button>
+            <button type="submit" id="guest-submit-btn" class="btn btn-primary" style="flex:1;justify-content:center;background:#25d366;border-color:#25d366">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+              Enviar no WhatsApp
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>`;
+
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.remove();
+  document.getElementById('guest-modal-close')?.addEventListener('click', close);
+  document.getElementById('guest-modal-cancel')?.addEventListener('click', close);
+  overlay.querySelector('div')?.addEventListener('click', e => { if (e.target === e.currentTarget) close(); });
+
+  document.getElementById('guest-order-form')?.addEventListener('submit', async e => {
+    e.preventDefault();
+    const name      = document.getElementById('guest-name').value.trim();
+    const whatsapp  = document.getElementById('guest-whatsapp').value.replace(/\D/g, '');
+    const notes     = document.getElementById('guest-notes').value.trim();
+    const submitBtn = document.getElementById('guest-submit-btn');
+
+    if (!name)            { toast('Informe seu nome', 'error'); return; }
+    if (whatsapp.length < 10) { toast('WhatsApp inválido (mín. 10 dígitos)', 'error'); return; }
+
+    submitBtn.disabled   = true;
+    submitBtn.textContent = 'Salvando...';
+
+    try {
+      const order = await api.guestOrders.create({
+        guestName: name,
+        whatsapp,
+        items: items.map(i => ({
+          productId:    i.productId,
+          productName:  i.productName || i.name,
+          team:         i.team,
+          size:         i.size,
+          quantity:     i.quantity,
+          price:        i.price || 0,
+          customName:   i.customName || undefined,
+          customNumber: i.customNumber || undefined,
+        })),
+        notes: notes || undefined,
+      });
+
+      // Build WhatsApp message
+      const itemLines = items.map(i =>
+        `• ${i.productName || i.name} – Tam. ${i.size} ×${i.quantity} – ${fmtPrice((i.price||0)*i.quantity)}`
+      ).join('\n');
+
+      const msg = [
+        `🛒 *Novo Pedido ${order.orderNumber}*`,
+        ``,
+        `*Nome:* ${name}`,
+        ``,
+        `*Itens:*`,
+        itemLines,
+        ``,
+        `*Total: ${fmtPrice(order.total)}*`,
+        notes ? `\n*Obs:* ${notes}` : '',
+      ].filter(Boolean).join('\n');
+
+      const waUrl = `https://wa.me/${STORE_WHATSAPP}?text=${encodeURIComponent(msg)}`;
+
+      close();
+      toast(`Pedido ${order.orderNumber} criado! Abrindo WhatsApp...`, 'success', 4000);
+      setTimeout(() => window.open(waUrl, '_blank'), 600);
+
+    } catch (err) {
+      toast(err.message || 'Erro ao criar pedido', 'error');
+      submitBtn.disabled   = false;
+      submitBtn.innerHTML  = `Enviar no WhatsApp`;
+    }
+  });
 }
 
 // ── CHECKOUT ────────────────────────────────────────────────
@@ -1476,10 +1714,11 @@ async function renderSignUp() {
 async function renderAdmin() {
   const app = document.getElementById('app');
 
-  const [stats, orders, salesByTeam] = await Promise.all([
+  const [stats, orders, salesByTeam, guestOrders] = await Promise.all([
     api.admin.stats().catch(() => null),
     api.admin.orders({ limit: 10 }).catch(() => []),
     api.admin.salesByTeam().catch(() => []),
+    api.admin.guestOrders().catch(() => []),
   ]);
 
   const maxRev = Math.max(...salesByTeam.map(s => s.totalSales), 1);
@@ -1570,8 +1809,74 @@ async function renderAdmin() {
           </span>`).join('')}
         </div>
       </div>` : ''}
+
+      <!-- Guest Orders table -->
+      <div class="card" style="margin-top:1.5rem">
+        <div class="card-body" style="padding:0">
+          <div style="padding:1.1rem 1.25rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+            <p class="card-title" style="margin:0;display:flex;align-items:center;gap:.5rem">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="color:#25d366"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+              Pedidos via WhatsApp (Visitantes)
+            </p>
+            <span style="font-size:.75rem;background:rgba(37,211,102,.12);color:#25d366;border:1px solid rgba(37,211,102,.3);padding:.15rem .6rem;border-radius:99px;font-weight:700">
+              ${guestOrders.length} pedido${guestOrders.length !== 1 ? 's' : ''}
+            </span>
+          </div>
+          <div style="overflow-x:auto">
+            <table class="data-table">
+              <thead><tr>
+                <th>Pedido</th><th>Cliente</th><th>WhatsApp</th><th>Itens</th><th>Data</th><th>Status</th><th class="text-right">Total</th>
+              </tr></thead>
+              <tbody>
+                ${guestOrders.length === 0
+                  ? `<tr><td colspan="7" style="text-align:center;padding:2rem;color:var(--muted)">Nenhum pedido de visitante ainda</td></tr>`
+                  : guestOrders.map(o => {
+                    const itemSummary = Array.isArray(o.items)
+                      ? o.items.map(i => `${i.productName} ×${i.quantity}`).join(', ')
+                      : '—';
+                    const waLink = `https://wa.me/${o.whatsapp}`;
+                    return `
+                    <tr>
+                      <td style="font-weight:800;color:var(--primary)">${o.orderNumber}</td>
+                      <td style="font-weight:600">${o.guestName}</td>
+                      <td>
+                        <a href="${waLink}" target="_blank" style="color:#25d366;font-weight:600;font-size:.8rem;text-decoration:none">
+                          ${o.whatsapp}
+                        </a>
+                      </td>
+                      <td style="font-size:.78rem;color:var(--muted);max-width:14rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${itemSummary}">${itemSummary}</td>
+                      <td style="color:var(--muted);font-size:.78rem">${new Date(o.createdAt).toLocaleDateString('pt-BR')}</td>
+                      <td>
+                        <select class="guest-status-sel" data-guest-id="${o.id}" style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius);padding:.2rem .5rem;font-size:.75rem;color:inherit;cursor:pointer">
+                          ${['pending','processing','shipped','delivered','cancelled'].map(s =>
+                            `<option value="${s}" ${o.status===s?'selected':''}>${s}</option>`
+                          ).join('')}
+                        </select>
+                      </td>
+                      <td class="text-right" style="font-weight:700;color:var(--primary)">${fmtPrice(o.total)}</td>
+                    </tr>`;
+                  }).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </div>
   </div>`;
+
+  // Attach guest order status change listeners
+  document.querySelectorAll('.guest-status-sel').forEach(sel => {
+    sel.addEventListener('change', async e => {
+      const id  = Number(e.target.dataset.guestId);
+      const status = e.target.value;
+      try {
+        await api.admin.updateGuestStatus(id, status);
+        toast('Status atualizado', 'success');
+      } catch (_) {
+        toast('Erro ao atualizar status', 'error');
+      }
+    });
+  });
 }
 
 // ── ADMIN PRODUCTS ───────────────────────────────────────────
