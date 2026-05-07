@@ -137,8 +137,8 @@ function Router() {
       <Route path="/" component={HomeRedirect} />
       <Route path="/shop" component={Shop} />
       <Route path="/products/:id" component={ProductDetail} />
-      <Route path="/sign-in/*?" component={SignInPage} />
-      <Route path="/sign-up/*?" component={SignUpPage} />
+      <Route path="/sign-in/:rest*" component={SignInPage} />
+      <Route path="/sign-up/:rest*" component={SignUpPage} />
       <Route path="/cart"><ProtectedRoute component={Cart} /></Route>
       <Route path="/checkout"><ProtectedRoute component={Checkout} /></Route>
       <Route path="/orders"><ProtectedRoute component={Orders} /></Route>
