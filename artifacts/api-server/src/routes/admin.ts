@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, sql, count } from "drizzle-orm";
-import { db, ordersTable, orderItemsTable, productsTable, guestOrdersTable } from "@workspace/db";
+import { db, ordersTable, orderItemsTable, productsTable, guestOrdersTable, usersTable } from "@workspace/db";
 import { getAuth } from "@clerk/express";
 import { ListAllOrdersQueryParams, UpdateOrderStatusBody, UpdateOrderStatusParams } from "@workspace/api-zod";
 
@@ -16,7 +16,25 @@ const requireAuth = (req: any, res: any, next: any) => {
   next();
 };
 
-router.get("/admin/stats", requireAuth, async (_req, res): Promise<void> => {
+const requireAdmin = async (req: any, res: any, next: any) => {
+  const auth = getAuth(req);
+  if (!auth?.userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  req.userId = auth.userId;
+  const [user] = await db
+    .select({ isAdmin: usersTable.isAdmin })
+    .from(usersTable)
+    .where(eq(usersTable.clerkId, auth.userId));
+  if (!user?.isAdmin) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+  next();
+};
+
+router.get("/admin/stats", requireAdmin, async (_req, res): Promise<void> => {
   const now = new Date();
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
@@ -54,8 +72,8 @@ router.get("/admin/stats", requireAuth, async (_req, res): Promise<void> => {
     .from(ordersTable)
     .where(eq(ordersTable.status, "pending"));
 
-  const [lowStockRow] = await db
-    .select({ count: count() })
+  const lowStockProducts = await db
+    .select({ id: productsTable.id, name: productsTable.name, stock: productsTable.stock })
     .from(productsTable)
     .where(sql`${productsTable.stock} < 10`);
 
@@ -63,15 +81,16 @@ router.get("/admin/stats", requireAuth, async (_req, res): Promise<void> => {
     totalRevenue: Number(totalRevenueRow.total),
     totalOrders: totalOrdersRow.count,
     totalCustomers: Number(totalCustomersRow.count),
+    uniqueCustomers: Number(totalCustomersRow.count),
     totalProducts: totalProductsRow.count,
     revenueThisMonth: Number(revenueThisMonthRow.total),
     ordersThisMonth: ordersThisMonthRow.count,
     pendingOrders: pendingOrdersRow.count,
-    lowStockProducts: lowStockRow.count,
+    lowStockProducts,
   });
 });
 
-router.get("/admin/orders", requireAuth, async (req, res): Promise<void> => {
+router.get("/admin/orders", requireAdmin, async (req, res): Promise<void> => {
   const parsed = ListAllOrdersQueryParams.safeParse(req.query);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -95,8 +114,19 @@ router.get("/admin/orders", requireAuth, async (req, res): Promise<void> => {
         .select()
         .from(orderItemsTable)
         .where(eq(orderItemsTable.orderId, order.id));
+
+      const [user] = await db
+        .select({ firstName: usersTable.firstName, lastName: usersTable.lastName, email: usersTable.email })
+        .from(usersTable)
+        .where(eq(usersTable.clerkId, order.userId));
+
+      const customerName = user
+        ? [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email
+        : order.userId;
+
       return {
         ...order,
+        customerName,
         subtotal: Number(order.subtotal),
         shippingCost: Number(order.shippingCost),
         total: Number(order.total),
@@ -117,7 +147,7 @@ router.get("/admin/orders", requireAuth, async (req, res): Promise<void> => {
   res.json(result);
 });
 
-router.patch("/admin/orders/:id/status", requireAuth, async (req, res): Promise<void> => {
+router.patch("/admin/orders/:id/status", requireAdmin, async (req, res): Promise<void> => {
   const params = UpdateOrderStatusParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -164,7 +194,7 @@ router.patch("/admin/orders/:id/status", requireAuth, async (req, res): Promise<
   });
 });
 
-router.get("/admin/guest-orders", requireAuth, async (_req, res): Promise<void> => {
+router.get("/admin/guest-orders", requireAdmin, async (_req, res): Promise<void> => {
   const orders = await db
     .select()
     .from(guestOrdersTable)
@@ -186,7 +216,7 @@ router.get("/admin/guest-orders", requireAuth, async (_req, res): Promise<void> 
   );
 });
 
-router.patch("/admin/guest-orders/:id/status", requireAuth, async (req, res): Promise<void> => {
+router.patch("/admin/guest-orders/:id/status", requireAdmin, async (req, res): Promise<void> => {
   const id = Number(req.params.id);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
 
@@ -204,7 +234,7 @@ router.patch("/admin/guest-orders/:id/status", requireAuth, async (req, res): Pr
   res.json({ id: order.id, orderNumber: order.orderNumber, status: order.status });
 });
 
-router.get("/admin/sales-by-team", requireAuth, async (_req, res): Promise<void> => {
+router.get("/admin/sales-by-team", requireAdmin, async (_req, res): Promise<void> => {
   const sales = await db
     .select({
       team: orderItemsTable.team,
@@ -219,6 +249,7 @@ router.get("/admin/sales-by-team", requireAuth, async (_req, res): Promise<void>
     sales.map((s) => ({
       team: s.team,
       totalSales: Number(s.totalSales),
+      revenue: Number(s.totalSales),
       orderCount: s.orderCount,
     })),
   );

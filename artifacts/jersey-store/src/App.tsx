@@ -3,7 +3,7 @@ import { Switch, Route, Router as WouterRouter, useLocation, Redirect } from "wo
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import {
   ClerkProvider, SignIn, SignUp,
-  Show, useClerk, useAuth,
+  Show, useClerk, useAuth, useUser,
 } from "@clerk/react";
 import { publishableKeyFromHost } from "@clerk/react/internal";
 import { shadcn } from "@clerk/themes";
@@ -71,6 +71,36 @@ function AuthTokenBridge() {
     setAuthTokenGetter(() => getToken());
     return () => setAuthTokenGetter(null);
   }, [getToken]);
+  return null;
+}
+
+function UserSyncBridge() {
+  const { user, isLoaded } = useUser();
+  const { getToken } = useAuth();
+  const syncedRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!isLoaded || !user) return;
+    if (syncedRef.current === user.id) return;
+    syncedRef.current = user.id;
+
+    const email = user.primaryEmailAddress?.emailAddress ?? user.emailAddresses?.[0]?.emailAddress;
+    if (!email) return;
+
+    getToken().then((token) => {
+      if (!token) return;
+      fetch(`${basePath}/api/users/sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          email,
+          firstName: user.firstName ?? undefined,
+          lastName: user.lastName ?? undefined,
+        }),
+      }).catch(() => {});
+    });
+  }, [isLoaded, user, getToken]);
+
   return null;
 }
 
@@ -174,6 +204,7 @@ function InnerApp() {
     >
       <QueryClientProvider client={queryClient}>
         <AuthTokenBridge />
+        <UserSyncBridge />
         <ClerkQueryClientCacheInvalidator />
         <TooltipProvider>
           <Router />

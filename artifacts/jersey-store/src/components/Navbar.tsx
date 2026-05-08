@@ -14,7 +14,10 @@ export default function Navbar() {
   const { data: cart } = useGetCart({ query: { enabled: !!user } });
 
   const cartCount = cart?.itemCount ?? 0;
-  const isAdmin = user?.emailAddresses?.some(e => e.emailAddress.includes("admin"));
+  const adminEmail = import.meta.env.VITE_ADMIN_EMAIL ?? "";
+  const isAdmin = !!user?.emailAddresses?.some(
+    (e) => adminEmail && e.emailAddress.toLowerCase() === adminEmail.toLowerCase(),
+  );
 
   const navLinks = [
     { href: "/shop", label: "Catálogo" },
