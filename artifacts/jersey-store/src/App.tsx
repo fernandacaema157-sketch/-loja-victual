@@ -9,6 +9,7 @@ import { publishableKeyFromHost } from "@clerk/react/internal";
 import { shadcn } from "@clerk/themes";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { setAuthTokenGetter } from "@workspace/api-client-react";
 import Home from "@/pages/Home";
 import Shop from "@/pages/Shop";
 import ProductDetail from "@/pages/ProductDetail";
@@ -63,6 +64,19 @@ const clerkAppearance = {
     alertText: "text-red-400",
   },
 };
+
+function AuthTokenBridge() {
+  const { getToken, isSignedIn } = useAuth();
+  useEffect(() => {
+    setAuthTokenGetter(async () => {
+      const token = await getToken();
+      console.log("[AuthTokenBridge] getToken result:", token ? token.substring(0, 20) + "..." : null, "isSignedIn:", isSignedIn);
+      return token;
+    });
+    return () => setAuthTokenGetter(null);
+  }, [getToken, isSignedIn]);
+  return null;
+}
 
 function UserSyncBridge() {
   const { user, isLoaded } = useUser();
@@ -195,6 +209,7 @@ function InnerApp() {
       }}
     >
       <QueryClientProvider client={queryClient}>
+        <AuthTokenBridge />
         <UserSyncBridge />
         <ClerkQueryClientCacheInvalidator />
         <TooltipProvider>
