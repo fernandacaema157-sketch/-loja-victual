@@ -1,8 +1,13 @@
 import { Router, type IRouter } from "express";
 import { eq, sql, count } from "drizzle-orm";
 import { db, ordersTable, orderItemsTable, productsTable, guestOrdersTable, usersTable } from "@workspace/db";
-import { getAuth } from "@clerk/express";
+import { getAuth, clerkClient } from "@clerk/express";
 import { ListAllOrdersQueryParams, UpdateOrderStatusBody, UpdateOrderStatusParams } from "@workspace/api-zod";
+
+const ADMIN_EMAILS = (process.env.ADMIN_EMAILS ?? "")
+  .split(",")
+  .map((e) => e.trim().toLowerCase())
+  .filter(Boolean);
 
 const router: IRouter = Router();
 
@@ -23,15 +28,33 @@ const requireAdmin = async (req: any, res: any, next: any) => {
     return;
   }
   req.userId = auth.userId;
-  const [user] = await db
-    .select({ isAdmin: usersTable.isAdmin })
-    .from(usersTable)
-    .where(eq(usersTable.clerkId, auth.userId));
-  if (!user?.isAdmin) {
+
+  try {
+    const clerkUser = await clerkClient.users.getUser(auth.userId);
+    const primaryEmail = clerkUser.emailAddresses.find(
+      (e: { id: string; emailAddress: string }) => e.id === clerkUser.primaryEmailAddressId,
+    )?.emailAddress ?? clerkUser.emailAddresses[0]?.emailAddress ?? "";
+
+    if (ADMIN_EMAILS.includes(primaryEmail.toLowerCase())) {
+      next();
+      return;
+    }
+
+    const [dbUser] = await db
+      .select({ isAdmin: usersTable.isAdmin })
+      .from(usersTable)
+      .where(eq(usersTable.clerkId, auth.userId));
+
+    if (dbUser?.isAdmin) {
+      next();
+      return;
+    }
+  } catch {
     res.status(403).json({ error: "Forbidden" });
     return;
   }
-  next();
+
+  res.status(403).json({ error: "Forbidden" });
 };
 
 router.get("/admin/stats", requireAdmin, async (_req, res): Promise<void> => {

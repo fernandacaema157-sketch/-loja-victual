@@ -9,7 +9,6 @@ import { publishableKeyFromHost } from "@clerk/react/internal";
 import { shadcn } from "@clerk/themes";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { setAuthTokenGetter } from "@workspace/api-client-react";
 import Home from "@/pages/Home";
 import Shop from "@/pages/Shop";
 import ProductDetail from "@/pages/ProductDetail";
@@ -65,15 +64,6 @@ const clerkAppearance = {
   },
 };
 
-function AuthTokenBridge() {
-  const { getToken } = useAuth();
-  useEffect(() => {
-    setAuthTokenGetter(() => getToken());
-    return () => setAuthTokenGetter(null);
-  }, [getToken]);
-  return null;
-}
-
 function UserSyncBridge() {
   const { user, isLoaded } = useUser();
   const { getToken } = useAuth();
@@ -88,10 +78,12 @@ function UserSyncBridge() {
     if (!email) return;
 
     getToken().then((token) => {
-      if (!token) return;
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
       fetch(`${basePath}/api/users/sync`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers,
+        credentials: "include",
         body: JSON.stringify({
           email,
           firstName: user.firstName ?? undefined,
@@ -203,7 +195,6 @@ function InnerApp() {
       }}
     >
       <QueryClientProvider client={queryClient}>
-        <AuthTokenBridge />
         <UserSyncBridge />
         <ClerkQueryClientCacheInvalidator />
         <TooltipProvider>

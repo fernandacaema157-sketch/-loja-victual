@@ -3,6 +3,7 @@ import { Link, useLocation } from "wouter";
 import { Show, useUser, useClerk } from "@clerk/react";
 import { ShoppingCart, Menu, X, ChevronDown, LogOut, Package, LayoutDashboard } from "lucide-react";
 import { useGetCart } from "@workspace/api-client-react";
+import { useIsAdmin } from "@/hooks/useIsAdmin";
 import logoUrl from "/logo.svg";
 
 export default function Navbar() {
@@ -12,12 +13,9 @@ export default function Navbar() {
   const { user } = useUser();
   const { signOut } = useClerk();
   const { data: cart } = useGetCart({ query: { enabled: !!user } });
+  const isAdmin = useIsAdmin();
 
   const cartCount = cart?.itemCount ?? 0;
-  const adminEmail = import.meta.env.VITE_ADMIN_EMAIL ?? "";
-  const isAdmin = !!user?.emailAddresses?.some(
-    (e) => adminEmail && e.emailAddress.toLowerCase() === adminEmail.toLowerCase(),
-  );
 
   const navLinks = [
     { href: "/shop", label: "Catálogo" },
