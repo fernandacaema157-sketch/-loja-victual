@@ -66,15 +66,11 @@ const clerkAppearance = {
 };
 
 function AuthTokenBridge() {
-  const { getToken, isSignedIn } = useAuth();
+  const { getToken } = useAuth();
   useEffect(() => {
-    setAuthTokenGetter(async () => {
-      const token = await getToken();
-      console.log("[AuthTokenBridge] getToken result:", token ? token.substring(0, 20) + "..." : null, "isSignedIn:", isSignedIn);
-      return token;
-    });
+    setAuthTokenGetter(() => getToken());
     return () => setAuthTokenGetter(null);
-  }, [getToken, isSignedIn]);
+  }, [getToken]);
   return null;
 }
 
@@ -86,25 +82,24 @@ function UserSyncBridge() {
   useEffect(() => {
     if (!isLoaded || !user) return;
     if (syncedRef.current === user.id) return;
-    syncedRef.current = user.id;
 
     const email = user.primaryEmailAddress?.emailAddress ?? user.emailAddresses?.[0]?.emailAddress;
     if (!email) return;
 
     getToken().then((token) => {
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (token) headers["Authorization"] = `Bearer ${token}`;
-      fetch(`${basePath}/api/users/sync`, {
+      if (!token) return;
+      return fetch(`${basePath}/api/users/sync`, {
         method: "POST",
-        headers,
-        credentials: "include",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({
           email,
           firstName: user.firstName ?? undefined,
           lastName: user.lastName ?? undefined,
         }),
-      }).catch(() => {});
-    });
+      });
+    }).then((res) => {
+      if (res && res.ok) syncedRef.current = user.id;
+    }).catch(() => {});
   }, [isLoaded, user, getToken]);
 
   return null;
