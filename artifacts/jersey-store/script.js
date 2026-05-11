@@ -196,10 +196,12 @@ async function initAuth() {
     state.user = user || null;
 
     if (!wasLoggedIn && state.user) {
-      // User just signed in → merge local cart to server
-      mergeLocalCartToServer().then(() => {
-        updateNavbar();
-        navigate('#shop');
+      // User just signed in → sync user to DB, then merge local cart
+      syncUserToDB(state.user).finally(() => {
+        mergeLocalCartToServer().then(() => {
+          updateNavbar();
+          navigate('#shop');
+        });
       });
     } else if (wasLoggedIn && !state.user) {
       // User signed out
@@ -213,7 +215,28 @@ async function initAuth() {
 
 function isLoggedIn() { return !!state.user; }
 function isAdmin() {
-  return state.user?.emailAddresses?.some(e => e.emailAddress?.includes('admin')) ?? false;
+  const adminEmail = import.meta.env.VITE_ADMIN_EMAIL || '';
+  if (!adminEmail || !state.user) return false;
+  return state.user.emailAddresses?.some(e =>
+    e.emailAddress?.toLowerCase() === adminEmail.toLowerCase()
+  ) ?? false;
+}
+
+async function syncUserToDB(user) {
+  if (!user) return;
+  const email = user.primaryEmailAddress?.emailAddress
+    || user.emailAddresses?.[0]?.emailAddress;
+  if (!email) return;
+  try {
+    await apiFetch('/users/sync', {
+      method: 'POST',
+      body: JSON.stringify({
+        email,
+        firstName: user.firstName || undefined,
+        lastName: user.lastName || undefined,
+      }),
+    });
+  } catch (_) {}
 }
 
 // ============================================================
@@ -381,6 +404,7 @@ function getRoute() {
 function navigate(hash) {
   window.location.hash = hash;
 }
+window.navigate = navigate;
 
 /** Called on every hashchange and on initial load */
 async function handleRoute() {

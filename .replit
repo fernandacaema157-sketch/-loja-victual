@@ -34,7 +34,8 @@ externalPort = 3000
 [userenv]
 
 [userenv.shared]
-VITE_CLERK_PUBLISHABLE_KEY = "pk_test_cXVpZXQtc2tpbmstNjQuY2xlcmsuYWNjb3VudHMuZGV2JA"
+ADMIN_EMAILS = "estagiariocaema17@gmail.com"
+VITE_ADMIN_EMAIL = "estagiariocaema17@gmail.com"
 
 [nix]
 channel = "stable-25_05"
