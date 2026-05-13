@@ -5,7 +5,10 @@
  * Jersey Store API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { CartItem } from "./cartItem";
 
-export interface HealthStatus {
-  status: string;
+export interface Cart {
+  items: CartItem[];
+  subtotal: number;
+  itemCount: number;
 }

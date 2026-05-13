@@ -113,6 +113,43 @@ router.get("/admin/stats", requireAdmin, async (_req, res): Promise<void> => {
   });
 });
 
+router.get("/admin/orders/:id", requireAdmin, async (req, res): Promise<void> => {
+  const id = Number(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
+  if (!order) { res.status(404).json({ error: "Order not found" }); return; }
+
+  const items = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, order.id));
+
+  const [user] = await db
+    .select({ firstName: usersTable.firstName, lastName: usersTable.lastName, email: usersTable.email })
+    .from(usersTable)
+    .where(eq(usersTable.clerkId, order.userId));
+
+  const customerName = user
+    ? [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email
+    : order.userId;
+
+  res.json({
+    ...order,
+    customerName,
+    subtotal: Number(order.subtotal),
+    shippingCost: Number(order.shippingCost),
+    total: Number(order.total),
+    paymentMethod: order.paymentMethod ?? null,
+    addressLine2: order.addressLine2 ?? null,
+    createdAt: order.createdAt.toISOString(),
+    updatedAt: order.updatedAt.toISOString(),
+    items: items.map((i) => ({
+      ...i,
+      price: Number(i.price),
+      customName: i.customName ?? null,
+      customNumber: i.customNumber ?? null,
+    })),
+  });
+});
+
 router.get("/admin/orders", requireAdmin, async (req, res): Promise<void> => {
   const parsed = ListAllOrdersQueryParams.safeParse(req.query);
   if (!parsed.success) {

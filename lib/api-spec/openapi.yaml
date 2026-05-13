@@ -395,6 +395,25 @@ paths:
                 items:
                   $ref: "#/components/schemas/Order"
 
+  /admin/orders/{id}:
+    get:
+      operationId: getAdminOrder
+      tags: [admin]
+      summary: Get a single order by ID (admin)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Order detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+
   /admin/orders/{id}/status:
     patch:
       operationId: updateOrderStatus

@@ -447,6 +447,46 @@ export const ListAllOrdersResponseItem = zod.object({
 export const ListAllOrdersResponse = zod.array(ListAllOrdersResponseItem);
 
 /**
+ * @summary Get a single order by ID (admin)
+ */
+export const GetAdminOrderParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const GetAdminOrderResponse = zod.object({
+  id: zod.number(),
+  userId: zod.string(),
+  status: zod.string(),
+  subtotal: zod.number(),
+  shippingCost: zod.number(),
+  total: zod.number(),
+  shippingMethod: zod.string(),
+  addressLine1: zod.string(),
+  addressLine2: zod.string().nullable(),
+  city: zod.string(),
+  state: zod.string(),
+  zipCode: zod.string(),
+  country: zod.string(),
+  paymentMethod: zod.string().nullable(),
+  paymentStatus: zod.string(),
+  items: zod.array(
+    zod.object({
+      id: zod.number(),
+      productId: zod.number(),
+      productName: zod.string(),
+      team: zod.string(),
+      size: zod.string(),
+      quantity: zod.number(),
+      price: zod.number(),
+      customName: zod.string().nullable(),
+      customNumber: zod.string().nullable(),
+    }),
+  ),
+  createdAt: zod.string(),
+  updatedAt: zod.string(),
+});
+
+/**
  * @summary Update order status (admin)
  */
 export const UpdateOrderStatusParams = zod.object({

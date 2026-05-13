@@ -120,7 +120,7 @@ export default function Admin() {
                     orders?.map((order) => {
                       const status = STATUS_LABELS[order.status] ?? { label: order.status, color: "bg-secondary text-muted-foreground border-border" };
                       return (
-                        <Link key={order.id} href={`/orders/${order.id}`}>
+                        <Link key={order.id} href={`/admin/orders/${order.id}`}>
                           <div className="p-4 flex items-center justify-between hover:bg-secondary/30 transition-colors cursor-pointer" data-testid={`admin-order-row-${order.id}`}>
                             <div className="flex items-center gap-3">
                               <span className="text-xs font-black text-muted-foreground w-10">#{order.id}</span>
