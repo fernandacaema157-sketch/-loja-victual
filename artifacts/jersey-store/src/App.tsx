@@ -19,6 +19,7 @@ import Orders from "@/pages/Orders";
 import OrderDetail from "@/pages/OrderDetail";
 import Admin from "@/pages/Admin";
 import AdminProducts from "@/pages/AdminProducts";
+import AdminOrderDetail from "@/pages/AdminOrderDetail";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient({
@@ -180,6 +181,7 @@ function Router() {
       <Route path="/orders/:id"><ProtectedRoute component={OrderDetail} /></Route>
       <Route path="/admin"><ProtectedRoute component={Admin} /></Route>
       <Route path="/admin/products"><ProtectedRoute component={AdminProducts} /></Route>
+      <Route path="/admin/orders/:id"><ProtectedRoute component={AdminOrderDetail} /></Route>
       <Route component={NotFound} />
     </Switch>
   );

@@ -6,6 +6,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface HealthStatus {
+export interface PaymentResult {
+  success: boolean;
+  /** @nullable */
+  transactionId: string | null;
+  message: string;
+  orderId: number;
   status: string;
 }
