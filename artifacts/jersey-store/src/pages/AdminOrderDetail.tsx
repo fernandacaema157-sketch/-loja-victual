@@ -1,4 +1,4 @@
-import { useRoute, Link } from "wouter";
+import { useParams, Link } from "wouter";
 import { motion } from "framer-motion";
 import {
   ArrowLeft, Package, MapPin, CreditCard,
@@ -35,7 +35,7 @@ const teamImages: Record<string, string> = {
 };
 
 export default function AdminOrderDetail() {
-  const [, params] = useRoute("/admin/orders/:id");
+  const params = useParams<{ id: string }>();
   const id = Number(params?.id);
   const { data: order, isLoading, refetch } = useGetAdminOrder(id, {
     query: { enabled: !!id, queryKey: getGetAdminOrderQueryKey(id) },
