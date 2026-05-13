@@ -1,11 +1,9 @@
-import { useParams, Link } from "wouter";
+import { useRoute, Link } from "wouter";
 import { motion } from "framer-motion";
-import {
-  ArrowLeft, Package, MapPin, CreditCard,
-  Check, Clock, Truck, Home, User,
-} from "lucide-react";
+import { ArrowLeft, Package, MapPin, CreditCard, Check, Clock, Truck, Home, User } from "lucide-react";
 import { useGetAdminOrder, getGetAdminOrderQueryKey, useUpdateOrderStatus } from "@workspace/api-client-react";
 import Navbar from "@/components/Navbar";
+import { useQueryClient } from "@tanstack/react-query";
 
 const STATUS_STEPS = ["pending", "processing", "shipped", "delivered"];
 const STATUS_LABELS: Record<string, { label: string; icon: typeof Check }> = {
@@ -35,10 +33,11 @@ const teamImages: Record<string, string> = {
 };
 
 export default function AdminOrderDetail() {
-  const params = useParams<{ id: string }>();
+  const [, params] = useRoute("/admin/orders/:id");
   const id = Number(params?.id);
-  const { data: order, isLoading, refetch } = useGetAdminOrder(id, {
-    query: { enabled: !!id, queryKey: getGetAdminOrderQueryKey(id) },
+  const queryClient = useQueryClient();
+  const { data: order, isLoading } = useGetAdminOrder(id, {
+    query: { enabled: !!id && !isNaN(id), queryKey: getGetAdminOrderQueryKey(id) },
   });
   const { mutate: updateStatus, isPending: updatingStatus } = useUpdateOrderStatus();
 
@@ -46,15 +45,22 @@ export default function AdminOrderDetail() {
     if (!order) return;
     updateStatus(
       { id: order.id, data: { status: newStatus } },
-      { onSuccess: () => refetch() },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: getGetAdminOrderQueryKey(order.id) });
+        },
+      },
     );
   };
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-background"><Navbar />
+      <div className="min-h-screen bg-background">
+        <Navbar />
         <div className="pt-16 max-w-3xl mx-auto px-4 py-8 space-y-4">
-          {[...Array(4)].map((_, i) => <div key={i} className="bg-card h-24 rounded-xl animate-pulse border border-border" />)}
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="bg-card h-24 rounded-xl animate-pulse border border-border" />
+          ))}
         </div>
       </div>
     );
@@ -62,7 +68,8 @@ export default function AdminOrderDetail() {
 
   if (!order) {
     return (
-      <div className="min-h-screen bg-background"><Navbar />
+      <div className="min-h-screen bg-background">
+        <Navbar />
         <div className="pt-16 flex items-center justify-center min-h-[60vh]">
           <div className="text-center">
             <p className="text-xl font-bold mb-2">Pedido não encontrado</p>
@@ -76,7 +83,8 @@ export default function AdminOrderDetail() {
   const currentStep = STATUS_STEPS.indexOf(order.status);
 
   return (
-    <div className="min-h-screen bg-background"><Navbar />
+    <div className="min-h-screen bg-background">
+      <Navbar />
       <div className="pt-16">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <Link href="/admin" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-6">
@@ -93,16 +101,19 @@ export default function AdminOrderDetail() {
                 })}
               </p>
             </div>
-            <select
-              value={order.status}
-              onChange={(e) => handleStatusChange(e.target.value)}
-              disabled={updatingStatus}
-              className="bg-card border border-border text-foreground text-sm font-bold px-3 py-2 rounded-xl focus:outline-none focus:border-primary disabled:opacity-50 cursor-pointer"
-            >
-              {STATUS_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </select>
+            <div className="flex items-center gap-3">
+              <select
+                value={order.status}
+                onChange={(e) => handleStatusChange(e.target.value)}
+                disabled={updatingStatus}
+                className="bg-card border border-border text-foreground text-sm font-bold px-3 py-2 rounded-xl focus:outline-none focus:border-primary disabled:opacity-50 cursor-pointer"
+              >
+                {STATUS_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+              {updatingStatus && <span className="text-xs text-muted-foreground">Salvando...</span>}
+            </div>
           </div>
 
           {/* Customer info */}
