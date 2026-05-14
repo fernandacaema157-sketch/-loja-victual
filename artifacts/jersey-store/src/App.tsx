@@ -177,11 +177,11 @@ function Router() {
       <Route path="/sign-up/*?" component={SignUpPage} />
       <Route path="/cart"><ProtectedRoute component={Cart} /></Route>
       <Route path="/checkout"><ProtectedRoute component={Checkout} /></Route>
-      <Route path="/orders"><ProtectedRoute component={Orders} /></Route>
       <Route path="/orders/:id"><ProtectedRoute component={OrderDetail} /></Route>
-      <Route path="/admin"><ProtectedRoute component={Admin} /></Route>
-      <Route path="/admin/products"><ProtectedRoute component={AdminProducts} /></Route>
+      <Route path="/orders"><ProtectedRoute component={Orders} /></Route>
       <Route path="/admin/orders/:id"><ProtectedRoute component={AdminOrderDetail} /></Route>
+      <Route path="/admin/products"><ProtectedRoute component={AdminProducts} /></Route>
+      <Route path="/admin"><ProtectedRoute component={Admin} /></Route>
       <Route component={NotFound} />
     </Switch>
   );
