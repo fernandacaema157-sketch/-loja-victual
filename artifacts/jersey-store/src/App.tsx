@@ -1,9 +1,24 @@
 import { useEffect, useRef } from "react";
-import { Switch, Route, Router as WouterRouter, useLocation, Redirect } from "wouter";
-import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import {
-  ClerkProvider, SignIn, SignUp,
-  Show, useClerk, useAuth, useUser,
+  Switch,
+  Route,
+  Router as WouterRouter,
+  useLocation,
+  Redirect,
+} from "wouter";
+import {
+  QueryClient,
+  QueryClientProvider,
+  useQueryClient,
+} from "@tanstack/react-query";
+import {
+  ClerkProvider,
+  SignIn,
+  SignUp,
+  Show,
+  useClerk,
+  useAuth,
+  useUser,
 } from "@clerk/react";
 import { publishableKeyFromHost } from "@clerk/react/internal";
 import { shadcn } from "@clerk/themes";
@@ -33,7 +48,9 @@ const clerkPubKey = publishableKeyFromHost(
   window.location.hostname,
   import.meta.env.VITE_CLERK_PUBLISHABLE_KEY,
 );
-const clerkProxyUrl = import.meta.env.VITE_CLERK_PROXY_URL as string | undefined;
+const clerkProxyUrl = import.meta.env.VITE_CLERK_PROXY_URL as
+  | string
+  | undefined;
 
 const clerkAppearance = {
   baseTheme: shadcn,
@@ -49,12 +66,15 @@ const clerkAppearance = {
   },
   elements: {
     rootBox: "w-full flex justify-center",
-    cardBox: "rounded-2xl w-[440px] max-w-full overflow-hidden border border-zinc-800",
+    cardBox:
+      "rounded-2xl w-[440px] max-w-full overflow-hidden border border-zinc-800",
     card: "!shadow-none !border-0 !bg-zinc-950",
     footer: "!bg-zinc-900 !border-0",
     formButtonPrimary: "bg-primary text-black font-bold hover:bg-primary/90",
-    formFieldInput: "bg-zinc-900 border border-zinc-700 text-white placeholder:text-zinc-500 focus:border-primary",
-    socialButtonsBlockButton: "border border-zinc-700 bg-zinc-900 hover:bg-zinc-800 text-white",
+    formFieldInput:
+      "bg-zinc-900 border border-zinc-700 text-white placeholder:text-zinc-500 focus:border-primary",
+    socialButtonsBlockButton:
+      "border border-zinc-700 bg-zinc-900 hover:bg-zinc-800 text-white",
     footerActionLink: "text-primary font-semibold",
     dividerLine: "bg-zinc-700",
     dividerText: "text-zinc-500",
@@ -84,23 +104,31 @@ function UserSyncBridge() {
     if (!isLoaded || !user) return;
     if (syncedRef.current === user.id) return;
 
-    const email = user.primaryEmailAddress?.emailAddress ?? user.emailAddresses?.[0]?.emailAddress;
+    const email =
+      user.primaryEmailAddress?.emailAddress ??
+      user.emailAddresses?.[0]?.emailAddress;
     if (!email) return;
 
-    getToken().then((token) => {
-      if (!token) return;
-      return fetch(`${basePath}/api/users/sync`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-        body: JSON.stringify({
-          email,
-          firstName: user.firstName ?? undefined,
-          lastName: user.lastName ?? undefined,
-        }),
-      });
-    }).then((res) => {
-      if (res && res.ok) syncedRef.current = user.id;
-    }).catch(() => {});
+    getToken()
+      .then((token) => {
+        if (!token) return;
+        return fetch(`${basePath}/api/users/sync`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            email,
+            firstName: user.firstName ?? undefined,
+            lastName: user.lastName ?? undefined,
+          }),
+        });
+      })
+      .then((res) => {
+        if (res && res.ok) syncedRef.current = user.id;
+      })
+      .catch(() => {});
   }, [isLoaded, user, getToken]);
 
   return null;
@@ -113,7 +141,10 @@ function ClerkQueryClientCacheInvalidator() {
   useEffect(() => {
     const unsubscribe = addListener(({ user }) => {
       const userId = user?.id ?? null;
-      if (prevUserIdRef.current !== undefined && prevUserIdRef.current !== userId) {
+      if (
+        prevUserIdRef.current !== undefined &&
+        prevUserIdRef.current !== userId
+      ) {
         qc.clear();
       }
       prevUserIdRef.current = userId;
@@ -123,11 +154,19 @@ function ClerkQueryClientCacheInvalidator() {
   return null;
 }
 
-function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
+function ProtectedRoute({
+  component: Component,
+}: {
+  component: React.ComponentType;
+}) {
   return (
     <>
-      <Show when="signed-in"><Component /></Show>
-      <Show when="signed-out"><Redirect to="/sign-in" /></Show>
+      <Show when="signed-in">
+        <Component />
+      </Show>
+      <Show when="signed-out">
+        <Redirect to="/sign-in" />
+      </Show>
     </>
   );
 }
@@ -161,8 +200,12 @@ function SignUpPage() {
 function HomeRedirect() {
   return (
     <>
-      <Show when="signed-in"><Redirect to="/shop" /></Show>
-      <Show when="signed-out"><Home /></Show>
+      <Show when="signed-in">
+        <Redirect to="/shop" />
+      </Show>
+      <Show when="signed-out">
+        <Home />
+      </Show>
     </>
   );
 }
@@ -175,13 +218,27 @@ function Router() {
       <Route path="/products/:id" component={ProductDetail} />
       <Route path="/sign-in/*?" component={SignInPage} />
       <Route path="/sign-up/*?" component={SignUpPage} />
-      <Route path="/cart"><ProtectedRoute component={Cart} /></Route>
-      <Route path="/checkout"><ProtectedRoute component={Checkout} /></Route>
-      <Route path="/orders/:id"><ProtectedRoute component={OrderDetail} /></Route>
-      <Route path="/orders"><ProtectedRoute component={Orders} /></Route>
-      <Route path="/admin/orders/:id"><ProtectedRoute component={AdminOrderDetail} /></Route>
-      <Route path="/admin/products"><ProtectedRoute component={AdminProducts} /></Route>
-      <Route path="/admin"><ProtectedRoute component={Admin} /></Route>
+      <Route path="/cart">
+        <ProtectedRoute component={Cart} />
+      </Route>
+      <Route path="/checkout">
+        <ProtectedRoute component={Checkout} />
+      </Route>
+      <Route path="/orders/:id">
+        <ProtectedRoute component={OrderDetail} />
+      </Route>
+      <Route path="/orders">
+        <ProtectedRoute component={Orders} />
+      </Route>
+      <Route path="/admin/orders/:id">
+        <ProtectedRoute component={AdminOrderDetail} />
+      </Route>
+      <Route path="/admin/products">
+        <ProtectedRoute component={AdminProducts} />
+      </Route>
+      <Route path="/admin">
+        <ProtectedRoute component={Admin} />
+      </Route>
       <Route component={NotFound} />
     </Switch>
   );
@@ -197,11 +254,17 @@ function InnerApp() {
       signInUrl={`${basePath}/sign-in`}
       signUpUrl={`${basePath}/sign-up`}
       routerPush={(to: string) => {
-        const stripped = basePath && to.startsWith(basePath) ? to.slice(basePath.length) || "/" : to;
+        const stripped =
+          basePath && to.startsWith(basePath)
+            ? to.slice(basePath.length) || "/"
+            : to;
         setLocation(stripped);
       }}
       routerReplace={(to: string) => {
-        const stripped = basePath && to.startsWith(basePath) ? to.slice(basePath.length) || "/" : to;
+        const stripped =
+          basePath && to.startsWith(basePath)
+            ? to.slice(basePath.length) || "/"
+            : to;
         setLocation(stripped, { replace: true });
       }}
     >
