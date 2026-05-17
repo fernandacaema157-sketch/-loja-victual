@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "s6wksNEkFg2T5ERGwoek6"
+uri = "file://DOCUMENTACAO.txt"
+type = "text"
+title = "Documentação Técnica — Jersey Store"
