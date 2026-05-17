@@ -1,0 +1,530 @@
+================================================================================
+  JERSEY STORE — DOCUMENTAÇÃO TÉCNICA DO PROJETO
+  Atualizado em: maio de 2026
+================================================================================
+
+Este documento orienta qualquer desenvolvedor a entender rapidamente como o
+projeto está organizado, onde cada funcionalidade vive e como tudo se conecta.
+
+--------------------------------------------------------------------------------
+1. VISÃO GERAL
+--------------------------------------------------------------------------------
+
+Jersey Store é um e-commerce de camisas de futebol com:
+  - Loja pública (catálogo, filtros por time, detalhe de produto)
+  - Carrinho e checkout com cálculo de frete
+  - Autenticação completa via Clerk (cadastro, login, sessão)
+  - Área do cliente (meus pedidos, detalhe do pedido)
+  - Painel administrativo (dashboard, gestão de produtos, todos os pedidos)
+
+Stack principal:
+  - Frontend: React 19 + Vite + Tailwind CSS + shadcn/ui
+  - Backend: Node.js 24 + Express 5
+  - Banco de dados: PostgreSQL + Drizzle ORM
+  - Autenticação: Clerk
+  - Gerenciador de pacotes: pnpm (monorepo com workspaces)
+  - Roteamento frontend: Wouter
+  - Estado de servidor: TanStack Query (React Query)
+  - Validação: Zod (zod/v4)
+
+--------------------------------------------------------------------------------
+2. ESTRUTURA DO MONOREPO
+--------------------------------------------------------------------------------
+
+jersey-store/                    ← raiz do projeto
+  artifacts/
+    api-server/                  ← servidor Express (API REST)
+    jersey-store/                ← aplicação React (frontend)
+    mockup-sandbox/              ← ambiente interno de prototipagem (Replit)
+  lib/
+    db/                          ← schema Drizzle + conexão com banco
+    api-spec/                    ← contrato OpenAPI (fonte da verdade da API)
+    api-client-react/            ← hooks React Query gerados automaticamente
+    api-zod/                     ← schemas Zod gerados automaticamente
+  scripts/                       ← scripts utilitários
+  pnpm-workspace.yaml            ← configuração do monorepo e catálogo de versões
+  tsconfig.base.json             ← configuração TypeScript compartilhada
+  DOCUMENTACAO.txt               ← este arquivo
+
+REGRA IMPORTANTE: artifacts/ não podem importar de outros artifacts/.
+Código compartilhado entre frontend e backend deve ficar em lib/.
+
+--------------------------------------------------------------------------------
+3. BANCO DE DADOS
+--------------------------------------------------------------------------------
+
+Schema definido em: lib/db/src/schema/
+
+Tabelas:
+
+  users
+    id          serial PK
+    clerk_id    text (ID único do Clerk, NOT NULL)
+    email       text NOT NULL
+    first_name  text
+    last_name   text
+    is_admin    boolean default false
+    created_at  timestamp
+    updated_at  timestamp
+
+  products
+    id                  serial PK
+    name                text NOT NULL
+    team                text NOT NULL       (ex: "Flamengo", "Brasil")
+    description         text NOT NULL
+    price               numeric(10,2)
+    image_url           text
+    sizes               text[]              (ex: ["P","M","G","GG"])
+    stock               integer default 0
+    is_featured         boolean default false
+    allow_customization boolean default true (nome/número na camisa)
+    created_at          timestamp
+    updated_at          timestamp
+
+  orders
+    id              serial PK
+    user_id         text NOT NULL           (clerk_id do comprador)
+    status          text default "pending"  (pending/processing/shipped/delivered)
+    subtotal        numeric(10,2)
+    shipping_cost   numeric(10,2)
+    total           numeric(10,2)
+    shipping_method text                    (standard/express/overnight)
+    address_line1   text NOT NULL
+    address_line2   text
+    city            text NOT NULL
+    state           text NOT NULL
+    zip_code        text NOT NULL
+    country         text default "BR"
+    payment_method  text                    (pix/credit_card/boleto)
+    payment_status  text default "pending"  (pending/paid)
+    transaction_id  text
+    created_at      timestamp
+    updated_at      timestamp
+
+  order_items
+    id            serial PK
+    order_id      integer NOT NULL (FK → orders.id)
+    product_id    integer NOT NULL (FK → products.id)
+    product_name  text NOT NULL    (snapshot do nome no momento da compra)
+    team          text NOT NULL
+    size          text NOT NULL
+    quantity      integer NOT NULL
+    price         numeric(10,2)
+    custom_name   text             (personalização: nome na camisa)
+    custom_number text             (personalização: número na camisa)
+    created_at    timestamp
+
+  cart_items
+    id             serial PK
+    user_id        text NOT NULL  (clerk_id do usuário)
+    product_id     integer NOT NULL
+    size           text NOT NULL
+    quantity       integer default 1
+    price          numeric(10,2)  (snapshot do preço no momento de adicionar)
+    custom_name    text
+    custom_number  text
+    created_at     timestamp
+    updated_at     timestamp
+
+  guest_orders
+    id            serial PK
+    order_number  text NOT NULL   (número legível, ex: "GU-12345")
+    guest_name    text NOT NULL
+    whatsapp      text NOT NULL
+    items         jsonb           (array de itens em JSON)
+    subtotal      numeric(10,2)
+    total         numeric(10,2)
+    status        text default "pending"
+    notes         text
+    created_at    timestamp
+
+Conexão com banco: lib/db/src/index.ts
+  Usa a env DATABASE_URL para criar o pool de conexões.
+
+Comandos de banco:
+  pnpm --filter @workspace/db run push    ← aplica o schema no banco (desenvolvimento)
+  pnpm --filter @workspace/db run studio  ← abre o Drizzle Studio (GUI do banco)
+
+--------------------------------------------------------------------------------
+4. BACKEND — SERVIDOR EXPRESS
+--------------------------------------------------------------------------------
+
+Localização: artifacts/api-server/src/
+
+Ponto de entrada: src/index.ts → src/app.ts
+
+Porta padrão: 8080 (via env PORT)
+Base path de todas as rotas: /api
+
+  src/
+    index.ts                     ← inicializa o servidor, lê variáveis de ambiente
+    app.ts                       ← configura Express, middlewares, registra rotas
+    lib/
+      logger.ts                  ← logger Pino (use req.log em rotas, logger fora)
+    middlewares/
+      clerkProxyMiddleware.ts    ← proxy para autenticação Clerk
+    routes/
+      health.ts                  ← GET /api/healthz (health check)
+      products.ts                ← CRUD de produtos
+      cart.ts                    ← gestão do carrinho
+      orders.ts                  ← pedidos do cliente autenticado
+      admin.ts                   ← endpoints administrativos (requer role admin)
+      guest-orders.ts            ← pedidos de convidados (sem conta)
+      users.ts                   ← sincronização de usuários com Clerk
+      index.ts                   ← agrega todos os routers
+
+VARIÁVEIS DE AMBIENTE NECESSÁRIAS:
+  PORT            porta do servidor (ex: 8080)
+  DATABASE_URL    string de conexão PostgreSQL
+  CLERK_SECRET_KEY  chave secreta do Clerk (começa com "sk_")
+  ADMIN_EMAILS    emails admin separados por vírgula (ex: "admin@email.com")
+  NODE_ENV        "development" ou "production"
+
+COMO ADICIONAR UMA NOVA ROTA:
+  1. Criar ou editar o arquivo em src/routes/
+  2. Registrar o router em src/routes/index.ts
+  3. Adicionar o endpoint no contrato OpenAPI em lib/api-spec/openapi.yaml
+  4. Rodar: pnpm --filter @workspace/api-spec run codegen
+  Isso gera automaticamente os hooks React Query e schemas Zod.
+
+IMPORTANTE: nunca use console.log no servidor. Use req.log (dentro de handlers)
+ou o singleton logger importado de src/lib/logger.ts.
+
+--------------------------------------------------------------------------------
+5. ROTAS DA API
+--------------------------------------------------------------------------------
+
+PRODUTOS (sem autenticação):
+  GET  /api/products              lista todos (filtros: team, size, minPrice, maxPrice, search, inStock)
+  GET  /api/products/featured     lista produtos em destaque (máx 6)
+  GET  /api/products/teams        lista times disponíveis com contagem
+  GET  /api/products/:id          detalhe de um produto
+  POST /api/products              cria produto (requer login)
+  PATCH /api/products/:id         atualiza produto (requer login)
+  DELETE /api/products/:id        remove produto (requer login)
+
+CARRINHO (requer autenticação):
+  GET    /api/cart                retorna carrinho do usuário (itens + subtotal + itemCount)
+  POST   /api/cart/items          adiciona item ao carrinho
+  PATCH  /api/cart/items/:itemId  atualiza quantidade de um item
+  DELETE /api/cart/items/:itemId  remove um item
+  DELETE /api/cart/clear          esvazia o carrinho
+  POST   /api/cart/shipping       calcula opções de frete por CEP (retorna 3 opções fixas)
+
+PEDIDOS DO CLIENTE (requer autenticação):
+  GET  /api/orders                lista pedidos do usuário logado
+  POST /api/orders                cria pedido a partir do carrinho atual
+  GET  /api/orders/:id            detalhe de um pedido (apenas do próprio usuário)
+  POST /api/orders/:id/payment    processa pagamento (simula, gera transactionId)
+
+ADMIN (requer role de administrador):
+  GET   /api/admin/stats                    dashboard: receita, pedidos, clientes, produtos
+  GET   /api/admin/orders                   lista TODOS os pedidos (qualquer usuário)
+  GET   /api/admin/orders/:id              detalhe completo de qualquer pedido
+  PATCH /api/admin/orders/:id/status       atualiza status de qualquer pedido
+  GET   /api/admin/guest-orders            lista pedidos de convidados
+  PATCH /api/admin/guest-orders/:id/status atualiza status de pedido convidado
+  GET   /api/admin/sales-by-team           relatório de vendas agrupado por time
+
+USUÁRIOS:
+  POST /api/users/sync    sincroniza dados do Clerk no banco (chamado no login)
+
+SAÚDE:
+  GET  /api/healthz       retorna { status: "ok" }
+
+--------------------------------------------------------------------------------
+6. AUTENTICAÇÃO E AUTORIZAÇÃO
+--------------------------------------------------------------------------------
+
+O projeto usa o Clerk para autenticação. Todos os tokens JWT são gerados e
+validados pelo Clerk automaticamente.
+
+COMO FUNCIONA:
+  1. O usuário se cadastra/loga via Clerk (frontend)
+  2. O Clerk emite um token JWT
+  3. O frontend envia o token em cada requisição via header Authorization
+  4. O backend usa clerkMiddleware() do @clerk/express para validar o token
+  5. O userId do Clerk fica disponível em req via getAuth(req).userId
+
+BRIDGE DE AUTENTICAÇÃO (frontend):
+  Arquivo: artifacts/jersey-store/src/App.tsx — componente AuthTokenBridge
+  Usa setAuthTokenGetter() para injetar o token do Clerk nas chamadas da API.
+  Todo hook gerado pelo codegen já usa esse token automaticamente.
+
+SINCRONIZAÇÃO DE USUÁRIOS:
+  Arquivo: artifacts/jersey-store/src/App.tsx — componente UserSyncBridge
+  Quando o usuário faz login, chama POST /api/users/sync para criar/atualizar
+  o registro na tabela users com os dados do Clerk.
+
+HOOK DE AUTENTICAÇÃO NO FRONTEND:
+  useAuth()   → { isSignedIn, getToken, userId }
+  useUser()   → { user, isLoaded }
+  useIsAdmin() → boolean (arquivo: artifacts/jersey-store/src/hooks/useIsAdmin.ts)
+
+COMO UM USUÁRIO VIRA ADMIN:
+  Duas formas:
+  1. Adicionar o email na variável de ambiente ADMIN_EMAILS do servidor
+  2. Setar is_admin = true na tabela users do banco
+
+  O frontend verifica admin em useIsAdmin.ts (lista hardcoded de emails).
+  O backend verifica admin em routes/admin.ts (env ADMIN_EMAILS + tabela users).
+  ATENÇÃO: se adicionar novos admins, atualizar nos dois lugares.
+
+FLUXO DE PROTEÇÃO DE ROTAS NO FRONTEND:
+  Componente ProtectedRoute (em App.tsx) redireciona para /sign-in se não logado.
+  O link "Admin" no Navbar só aparece se useIsAdmin() retornar true.
+
+--------------------------------------------------------------------------------
+7. FRONTEND — PÁGINAS E COMPONENTES
+--------------------------------------------------------------------------------
+
+Localização: artifacts/jersey-store/src/
+
+  src/
+    main.tsx                     ← ponto de entrada React
+    App.tsx                      ← providers globais, roteador, bridges de auth
+    pages/
+      Home.tsx                   ← página inicial (redireciona para /shop)
+      Shop.tsx                   ← catálogo com filtros (time, tamanho, preço, busca)
+      ProductDetail.tsx          ← detalhe do produto (escolha tamanho, personalização, add ao carrinho)
+      Cart.tsx                   ← carrinho (alterar qtd, remover, calcular frete)
+      Checkout.tsx               ← formulário de endereço + escolha de frete + pagamento
+      Orders.tsx                 ← "Meus Pedidos" (lista os pedidos do usuário logado)
+      OrderDetail.tsx            ← detalhe de um pedido do usuário
+      Admin.tsx                  ← painel admin (dashboard de stats + lista todos os pedidos)
+      AdminProducts.tsx          ← gestão de produtos (criar, editar, deletar)
+      AdminOrderDetail.tsx       ← detalhe de qualquer pedido com edição de status
+    components/
+      Navbar.tsx                 ← barra de navegação principal (logo, links, carrinho, auth)
+      ui/                        ← componentes shadcn/ui (Button, Input, Dialog, etc.)
+    hooks/
+      useIsAdmin.ts              ← verifica se o usuário logado é admin
+      use-mobile.tsx             ← detecta viewport mobile
+      use-toast.ts               ← toast notifications
+    lib/
+      utils.ts                   ← utilitários (cn para classes Tailwind)
+
+ROTAS DO FRONTEND (definidas em App.tsx):
+
+  /                     → redireciona para /shop
+  /shop                 → catálogo de produtos
+  /products/:id         → detalhe do produto
+  /sign-in              → página de login (Clerk)
+  /sign-up              → página de cadastro (Clerk)
+  /cart                 → carrinho (requer login)
+  /checkout             → checkout (requer login)
+  /orders/:id           → detalhe do pedido do cliente (requer login)
+  /orders               → lista de pedidos do cliente (requer login)
+  /admin/orders/:id     → detalhe de pedido pelo admin (requer login)
+  /admin/products       → gestão de produtos (requer login)
+  /admin                → painel admin (requer login)
+
+ATENÇÃO — ORDEM DAS ROTAS:
+  O wouter faz prefix matching por padrão dentro do Switch. Rotas mais
+  específicas DEVEM vir antes das menos específicas. Não mude a ordem
+  sem entender isso. Exemplo: /admin/orders/:id deve estar ANTES de /admin.
+
+DESIGN E ESTILIZAÇÃO:
+  - Tailwind CSS para toda a estilização
+  - shadcn/ui para componentes base (em src/components/ui/)
+  - Tema escuro (fundo #0f0f0f), cor primária verde neon (#00FF87)
+  - Fonte: Outfit (Google Fonts)
+  - Animações: Framer Motion
+
+COMO FAZER UMA CHAMADA DE API NO FRONTEND:
+  Usar os hooks gerados automaticamente de @workspace/api-client-react.
+  Exemplo:
+    import { useListProducts, useAddCartItem } from "@workspace/api-client-react";
+    const { data, isLoading } = useListProducts({ team: "Flamengo" });
+    const mutation = useAddCartItem();
+    mutation.mutate({ productId: 1, size: "G", quantity: 1 });
+
+  NUNCA fazer fetch() manual. Sempre usar os hooks gerados.
+
+--------------------------------------------------------------------------------
+8. FLUXO DE COMPRA (DO INÍCIO AO FIM)
+--------------------------------------------------------------------------------
+
+1. Usuário navega em /shop e filtra por time/tamanho/preço
+2. Clica num produto → /products/:id
+3. Escolhe tamanho, quantidade e personalização (nome/número se habilitado)
+4. Clica "Adicionar ao Carrinho" → POST /api/cart/items
+5. Navega para /cart → vê itens, altera quantidades, remove itens
+6. Clica "Calcular Frete" → POST /api/cart/shipping (retorna 3 opções)
+7. Escolhe opção de frete e clica "Finalizar Compra" → /checkout
+8. Preenche endereço completo no formulário
+9. Escolhe método de pagamento (Pix/Cartão/Boleto)
+10. Clica "Confirmar Pedido" → POST /api/orders (cria pedido, esvazia carrinho)
+11. Frontend chama POST /api/orders/:id/payment (simula pagamento)
+12. Redirecionado para /orders → vê o pedido criado com status "processing"
+13. Admin pode ver e atualizar o status em /admin/orders/:id
+
+--------------------------------------------------------------------------------
+9. PAINEL ADMINISTRATIVO
+--------------------------------------------------------------------------------
+
+Acesso: /admin (visível no Navbar apenas para admins)
+
+DASHBOARD (/admin):
+  - Cards: receita total, pedidos totais, clientes únicos, produtos cadastrados
+  - Comparativo do mês atual (receita e pedidos)
+  - Alertas de estoque baixo (produtos com stock < 10)
+  - Tabela com todos os pedidos (qualquer cliente)
+  - Gráfico de vendas por time
+  - Lista de pedidos de convidados (guest orders)
+  - Ao clicar em um pedido → /admin/orders/:id
+
+DETALHE DO PEDIDO ADMIN (/admin/orders/:id):
+  - Vê dados completos: cliente, itens, endereço, valores, pagamento
+  - Dropdown para alterar status: pending → processing → shipped → delivered
+  - A alteração chama PATCH /api/admin/orders/:id/status
+
+GESTÃO DE PRODUTOS (/admin/products):
+  - Lista todos os produtos com imagem, time, preço e estoque
+  - Botão para criar novo produto (abre modal com formulário completo)
+  - Editar produto (preenche formulário com dados atuais)
+  - Deletar produto (confirmação antes de remover)
+
+--------------------------------------------------------------------------------
+10. CODEGEN — CONTRATO DE API
+--------------------------------------------------------------------------------
+
+A API é definida em um contrato OpenAPI primeiro. A partir dele, código é
+gerado automaticamente. NUNCA escrever hooks de API na mão.
+
+Fluxo:
+  1. Editar o contrato: lib/api-spec/openapi.yaml
+  2. Rodar: pnpm --filter @workspace/api-spec run codegen
+  3. Arquivos gerados automaticamente:
+     - lib/api-client-react/src/generated/api.ts  (hooks React Query)
+     - lib/api-zod/src/generated/                  (schemas Zod de validação)
+
+Os schemas Zod são usados no servidor para validar inputs/outputs de cada rota.
+Os hooks React Query são usados no frontend para fazer chamadas à API.
+
+--------------------------------------------------------------------------------
+11. COMO RODAR LOCALMENTE
+--------------------------------------------------------------------------------
+
+PRÉ-REQUISITOS:
+  - Node.js v20+
+  - pnpm instalado: npm install -g pnpm
+  - PostgreSQL rodando localmente
+
+PASSOS:
+
+  1. Instalar dependências:
+     pnpm install
+
+  2. Configurar variáveis de ambiente:
+
+     Criar artifacts/api-server/.env:
+       PORT=8080
+       DATABASE_URL=postgresql://usuario:senha@localhost:5432/jersey_store
+       CLERK_SECRET_KEY=sk_test_...
+       ADMIN_EMAILS=seu@email.com
+       NODE_ENV=development
+
+     Criar artifacts/jersey-store/.env:
+       PORT=5173
+       BASE_PATH=/
+       VITE_CLERK_PUBLISHABLE_KEY=pk_test_...
+
+     As chaves do Clerk você obtém em https://clerk.com criando um projeto.
+
+  3. Criar o banco e aplicar o schema:
+     pnpm --filter @workspace/db run push
+
+  4. Rodar o servidor (Terminal 1):
+     pnpm --filter @workspace/api-server run dev
+
+  5. Rodar o frontend (Terminal 2):
+     pnpm --filter @workspace/jersey-store run dev
+
+  6. Acessar: http://localhost:5173
+
+  ATENÇÃO — PROXY LOCAL:
+     No Replit, um proxy central roteia /api → servidor e / → frontend.
+     Localmente isso não existe. O frontend precisa de um proxy configurado
+     no Vite apontando /api para http://localhost:8080, OU o servidor
+     precisa ter CORS liberado para http://localhost:5173.
+
+COMANDOS ÚTEIS:
+  pnpm run typecheck                              ← verifica tipos em todo o projeto
+  pnpm run build                                  ← build de todos os pacotes
+  pnpm --filter @workspace/api-spec run codegen   ← regenera hooks e schemas da API
+  pnpm --filter @workspace/db run push            ← aplica schema no banco
+  pnpm --filter @workspace/db run studio          ← abre Drizzle Studio (GUI do banco)
+
+--------------------------------------------------------------------------------
+12. PADRÕES E CONVENÇÕES DO PROJETO
+--------------------------------------------------------------------------------
+
+TYPESCRIPT:
+  - lib/* são pacotes compiláveis (emitem declarações .d.ts)
+  - artifacts/* são pacotes leaf (só typechecking, sem emissão)
+  - tsconfig.base.json define as regras strict compartilhadas
+
+BACKEND:
+  - Nunca usar console.log, sempre usar req.log ou logger
+  - Toda entrada de API deve ser validada com Zod antes de usar
+  - Sempre retornar erros com { error: "mensagem" }
+  - Rotas protegidas usam o middleware requireAuth ou requireAdmin
+
+FRONTEND:
+  - Nunca usar fetch() diretamente, sempre usar hooks de @workspace/api-client-react
+  - Componentes de UI devem vir de src/components/ui/ (shadcn/ui)
+  - Hooks customizados ficam em src/hooks/
+  - Rotas mais específicas devem estar antes das menos específicas no Switch
+
+BANCO DE DADOS:
+  - Nunca escrever SQL puro, usar Drizzle ORM
+  - Preços são armazenados como numeric e convertidos para Number na resposta
+  - Timestamps sempre com timezone
+
+GIT:
+  - O projeto roda no Replit com checkpoints automáticos
+  - Branch principal: main
+
+--------------------------------------------------------------------------------
+13. PONTOS DE ATENÇÃO PARA NOVOS DEVS
+--------------------------------------------------------------------------------
+
+1. CODEGEN É OBRIGATÓRIO após mudar openapi.yaml
+   Se adicionar um endpoint novo sem rodar o codegen, o frontend não terá
+   o hook correspondente e você vai acabar escrevendo fetch() na mão.
+
+2. ORDEM DAS ROTAS NO WOUTER
+   O wouter usa prefix matching. Rotas /admin/orders/:id DEVEM estar antes
+   de /admin no Switch, caso contrário /admin captura tudo.
+
+3. PREÇOS SÃO STRINGS NO BANCO
+   Drizzle retorna o tipo numeric como string do PostgreSQL. Todo preço lido
+   do banco deve ser convertido com Number() antes de enviar ao frontend.
+
+4. CLERK NO FRONTEND LOCAL
+   VITE_CLERK_PROXY_URL é usado apenas no Replit (proxy do Clerk via domínio
+   Replit). Localmente deixar indefinida ou vazia, usar só a publishable key.
+
+5. ADMINS PRECISAM SER CONFIGURADOS EM DOIS LUGARES
+   - Backend: variável ADMIN_EMAILS (ou coluna is_admin no banco)
+   - Frontend: array em src/hooks/useIsAdmin.ts (hardcoded)
+   Se adicionar um admin novo, atualizar os dois.
+
+6. PAGAMENTO É SIMULADO
+   O endpoint POST /api/orders/:id/payment é uma simulação. Ele gera um
+   transactionId aleatório e marca o pedido como "paid". Para integrar um
+   gateway real (Stripe, Mercado Pago), substituir essa lógica.
+
+7. FRETE É FIXO
+   POST /api/cart/shipping retorna 3 opções com valores fixos, sem integrar
+   Correios ou outro serviço. Para integrar frete real, editar routes/cart.ts.
+
+8. GUEST ORDERS
+   Existe o conceito de "pedidos de convidados" (sem login) na tabela
+   guest_orders. Eles são gerenciados pelo admin mas o fluxo de criação
+   pelo cliente ainda não está implementado no frontend.
+
+================================================================================
+  FIM DA DOCUMENTAÇÃO
+================================================================================
