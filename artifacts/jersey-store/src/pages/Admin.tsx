@@ -7,6 +7,10 @@ import {
 import { useGetAdminStats, useListAllOrders, useGetSalesByTeam } from "@workspace/api-client-react";
 import Navbar from "@/components/Navbar";
 
+type ExtendedAdminStats = { totalRevenue: number; totalOrders: number; totalProducts: number; uniqueCustomers: number; lowStockProducts: { id: number; name: string; stock: number }[] };
+type ExtendedTeamSales = { team: string; revenue: number; totalSales: number; orderCount: number };
+type ExtendedOrder = { id: number; status: string; total: number; createdAt: string; customerName: string };
+
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   pending: { label: "Aguardando", color: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30" },
   processing: { label: "Processando", color: "bg-blue-500/20 text-blue-400 border-blue-500/30" },
@@ -16,9 +20,12 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
 };
 
 export default function Admin() {
-  const { data: stats, isLoading: loadingStats } = useGetAdminStats();
-  const { data: orders, isLoading: loadingOrders } = useListAllOrders({ limit: 10 });
-  const { data: salesByTeam } = useGetSalesByTeam();
+  const { data: statsRaw, isLoading: loadingStats } = useGetAdminStats();
+  const { data: ordersRaw, isLoading: loadingOrders } = useListAllOrders({} as any);
+  const { data: salesByTeamRaw } = useGetSalesByTeam();
+  const stats = statsRaw as ExtendedAdminStats | undefined;
+  const orders = ordersRaw as ExtendedOrder[] | undefined;
+  const salesByTeam = salesByTeamRaw as ExtendedTeamSales[] | undefined;
 
   const statCards = [
     {

@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { eq, ilike, and, gte, lte, sql } from "drizzle-orm";
 import { db, productsTable } from "@workspace/db";
-import { getAuth } from "@clerk/express";
+import { requireAuth } from "../middlewares/jwtMiddleware";
 import {
   ListProductsQueryParams,
   CreateProductBody,
@@ -101,13 +101,7 @@ router.get("/products/:id", async (req, res): Promise<void> => {
   res.json({ ...product, price: Number(product.price), createdAt: product.createdAt.toISOString() });
 });
 
-router.post("/products", async (req, res): Promise<void> => {
-  const auth = getAuth(req);
-  if (!auth?.userId) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-
+router.post("/products", requireAuth, async (req: any, res): Promise<void> => {
   const parsed = CreateProductBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -127,13 +121,7 @@ router.post("/products", async (req, res): Promise<void> => {
   res.status(201).json({ ...product, price: Number(product.price), createdAt: product.createdAt.toISOString() });
 });
 
-router.patch("/products/:id", async (req, res): Promise<void> => {
-  const auth = getAuth(req);
-  if (!auth?.userId) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-
+router.patch("/products/:id", requireAuth, async (req: any, res): Promise<void> => {
   const params = UpdateProductParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -165,13 +153,7 @@ router.patch("/products/:id", async (req, res): Promise<void> => {
   res.json({ ...product, price: Number(product.price), createdAt: product.createdAt.toISOString() });
 });
 
-router.delete("/products/:id", async (req, res): Promise<void> => {
-  const auth = getAuth(req);
-  if (!auth?.userId) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-
+router.delete("/products/:id", requireAuth, async (req: any, res): Promise<void> => {
   const params = DeleteProductParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });

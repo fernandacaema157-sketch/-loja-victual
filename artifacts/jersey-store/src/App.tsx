@@ -1,9 +1,7 @@
-import { useEffect, useRef } from "react";
 import {
   Switch,
   Route,
   Router as WouterRouter,
-  useLocation,
   Redirect,
 } from "wouter";
 import {
@@ -11,20 +9,9 @@ import {
   QueryClientProvider,
   useQueryClient,
 } from "@tanstack/react-query";
-import {
-  ClerkProvider,
-  SignIn,
-  SignUp,
-  Show,
-  useClerk,
-  useAuth,
-  useUser,
-} from "@clerk/react";
-import { publishableKeyFromHost } from "@clerk/react/internal";
-import { shadcn } from "@clerk/themes";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { setAuthTokenGetter } from "@workspace/api-client-react";
+import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import Home from "@/pages/Home";
 import Shop from "@/pages/Shop";
 import ProductDetail from "@/pages/ProductDetail";
@@ -35,6 +22,8 @@ import OrderDetail from "@/pages/OrderDetail";
 import Admin from "@/pages/Admin";
 import AdminProducts from "@/pages/AdminProducts";
 import AdminOrderDetail from "@/pages/AdminOrderDetail";
+import SignIn from "@/pages/SignIn";
+import SignUp from "@/pages/SignUp";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient({
@@ -44,180 +33,33 @@ const queryClient = new QueryClient({
 });
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
-const clerkPubKey = publishableKeyFromHost(
-  window.location.hostname,
-  import.meta.env.VITE_CLERK_PUBLISHABLE_KEY,
-);
-const clerkProxyUrl = import.meta.env.VITE_CLERK_PROXY_URL as
-  | string
-  | undefined;
 
-const clerkAppearance = {
-  baseTheme: shadcn,
-  cssLayerName: "clerk",
-  variables: {
-    colorPrimary: "#00FF87",
-    colorBackground: "#0f0f0f",
-    colorInput: "#1a1a1a",
-    colorInputForeground: "#fafafa",
-    colorNeutral: "#404040",
-    fontFamily: "'Outfit', sans-serif",
-    borderRadius: "0.5rem",
-  },
-  elements: {
-    rootBox: "w-full flex justify-center",
-    cardBox:
-      "rounded-2xl w-[440px] max-w-full overflow-hidden border border-zinc-800",
-    card: "!shadow-none !border-0 !bg-zinc-950",
-    footer: "!bg-zinc-900 !border-0",
-    formButtonPrimary: "bg-primary text-black font-bold hover:bg-primary/90",
-    formFieldInput:
-      "bg-zinc-900 border border-zinc-700 text-white placeholder:text-zinc-500 focus:border-primary",
-    socialButtonsBlockButton:
-      "border border-zinc-700 bg-zinc-900 hover:bg-zinc-800 text-white",
-    footerActionLink: "text-primary font-semibold",
-    dividerLine: "bg-zinc-700",
-    dividerText: "text-zinc-500",
-    headerTitle: "text-white font-bold",
-    formFieldLabel: "text-zinc-300",
-    footerActionText: "text-zinc-400",
-    identityPreviewEditButton: "text-primary",
-    alertText: "text-red-400",
-  },
-};
-
-function AuthTokenBridge() {
-  const { getToken } = useAuth();
-  useEffect(() => {
-    setAuthTokenGetter(() => getToken());
-    return () => setAuthTokenGetter(null);
-  }, [getToken]);
-  return null;
-}
-
-function UserSyncBridge() {
-  const { user, isLoaded } = useUser();
-  const { getToken } = useAuth();
-  const syncedRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (!isLoaded || !user) return;
-    if (syncedRef.current === user.id) return;
-
-    const email =
-      user.primaryEmailAddress?.emailAddress ??
-      user.emailAddresses?.[0]?.emailAddress;
-    if (!email) return;
-
-    getToken()
-      .then((token) => {
-        if (!token) return;
-        return fetch(`${basePath}/api/users/sync`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            email,
-            firstName: user.firstName ?? undefined,
-            lastName: user.lastName ?? undefined,
-          }),
-        });
-      })
-      .then((res) => {
-        if (res && res.ok) syncedRef.current = user.id;
-      })
-      .catch(() => {});
-  }, [isLoaded, user, getToken]);
-
-  return null;
-}
-
-function ClerkQueryClientCacheInvalidator() {
-  const { addListener } = useClerk();
-  const qc = useQueryClient();
-  const prevUserIdRef = useRef<string | null | undefined>(undefined);
-  useEffect(() => {
-    const unsubscribe = addListener(({ user }) => {
-      const userId = user?.id ?? null;
-      if (
-        prevUserIdRef.current !== undefined &&
-        prevUserIdRef.current !== userId
-      ) {
-        qc.clear();
-      }
-      prevUserIdRef.current = userId;
-    });
-    return unsubscribe;
-  }, [addListener, qc]);
-  return null;
-}
-
-function ProtectedRoute({
-  component: Component,
-}: {
-  component: React.ComponentType;
-}) {
-  return (
-    <>
-      <Show when="signed-in">
-        <Component />
-      </Show>
-      <Show when="signed-out">
-        <Redirect to="/sign-in" />
-      </Show>
-    </>
-  );
-}
-
-function SignInPage() {
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <SignIn
-        routing="path"
-        path={`${basePath}/sign-in`}
-        signUpUrl={`${basePath}/sign-up`}
-        appearance={clerkAppearance}
-      />
-    </div>
-  );
-}
-
-function SignUpPage() {
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <SignUp
-        routing="path"
-        path={`${basePath}/sign-up`}
-        signInUrl={`${basePath}/sign-in`}
-        appearance={clerkAppearance}
-      />
-    </div>
-  );
+function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
+  const { isLoaded, isSignedIn } = useAuth();
+  if (!isLoaded) return null;
+  if (!isSignedIn) return <Redirect to="/sign-in" />;
+  return <Component />;
 }
 
 function HomeRedirect() {
-  return (
-    <>
-      <Show when="signed-in">
-        <Redirect to="/shop" />
-      </Show>
-      <Show when="signed-out">
-        <Home />
-      </Show>
-    </>
-  );
+  const { isLoaded, isSignedIn } = useAuth();
+  if (!isLoaded) return null;
+  if (isSignedIn) return <Redirect to="/shop" />;
+  return <Home />;
+}
+
+function AuthCacheReset({ children }: { children: React.ReactNode }) {
+  return <>{children}</>;
 }
 
 function Router() {
   return (
     <Switch>
-      <Route path="/" component={HomeRedirect} />
+      <Route path="~/" component={HomeRedirect} />
       <Route path="/shop" component={Shop} />
       <Route path="/products/:id" component={ProductDetail} />
-      <Route path="/sign-in/*?" component={SignInPage} />
-      <Route path="/sign-up/*?" component={SignUpPage} />
+      <Route path="/sign-in" component={SignIn} />
+      <Route path="/sign-up" component={SignUp} />
       <Route path="/cart">
         <ProtectedRoute component={Cart} />
       </Route>
@@ -245,39 +87,15 @@ function Router() {
 }
 
 function InnerApp() {
-  const [, setLocation] = useLocation();
   return (
-    <ClerkProvider
-      publishableKey={clerkPubKey}
-      proxyUrl={clerkProxyUrl}
-      appearance={clerkAppearance}
-      signInUrl={`${basePath}/sign-in`}
-      signUpUrl={`${basePath}/sign-up`}
-      routerPush={(to: string) => {
-        const stripped =
-          basePath && to.startsWith(basePath)
-            ? to.slice(basePath.length) || "/"
-            : to;
-        setLocation(stripped);
-      }}
-      routerReplace={(to: string) => {
-        const stripped =
-          basePath && to.startsWith(basePath)
-            ? to.slice(basePath.length) || "/"
-            : to;
-        setLocation(stripped, { replace: true });
-      }}
-    >
+    <AuthProvider>
       <QueryClientProvider client={queryClient}>
-        <AuthTokenBridge />
-        <UserSyncBridge />
-        <ClerkQueryClientCacheInvalidator />
         <TooltipProvider>
           <Router />
           <Toaster />
         </TooltipProvider>
       </QueryClientProvider>
-    </ClerkProvider>
+    </AuthProvider>
   );
 }
 

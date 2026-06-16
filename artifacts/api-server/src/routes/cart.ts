@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { eq, and } from "drizzle-orm";
 import { db, cartItemsTable, productsTable } from "@workspace/db";
-import { getAuth } from "@clerk/express";
+import { requireAuth } from "../middlewares/jwtMiddleware";
 import {
   AddCartItemBody,
   UpdateCartItemBody,
@@ -10,16 +10,6 @@ import {
 } from "@workspace/api-zod";
 
 const router: IRouter = Router();
-
-const requireAuth = (req: any, res: any, next: any) => {
-  const auth = getAuth(req);
-  if (!auth?.userId) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-  req.userId = auth.userId;
-  next();
-};
 
 async function buildCart(userId: string) {
   const items = await db

@@ -4,9 +4,9 @@ import { motion } from "framer-motion";
 import { ShoppingCart, ArrowLeft, Star, Check, AlertCircle } from "lucide-react";
 import { useGetProduct, useAddCartItem, getGetCartQueryKey, getGetProductQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Show } from "@clerk/react";
 import { useToast } from "@/hooks/use-toast";
 import Navbar from "@/components/Navbar";
+import { useAuth } from "@/contexts/AuthContext";
 
 const teamImages: Record<string, string> = {
   "Real Madrid": "/images/real-madrid.png",
@@ -31,6 +31,8 @@ export default function ProductDetail() {
   const [customName, setCustomName] = useState("");
   const [customNumber, setCustomNumber] = useState("");
   const [added, setAdded] = useState(false);
+
+  const { isSignedIn } = useAuth();
 
   const { data: product, isLoading } = useGetProduct(id, {
     query: { enabled: !!id, queryKey: getGetProductQueryKey(id) },
@@ -230,7 +232,7 @@ export default function ProductDetail() {
               )}
 
               {/* Add to cart */}
-              <Show when="signed-in">
+              {isSignedIn ? (
                 <button
                   onClick={handleAddToCart}
                   disabled={addCartItem.isPending || product.stock === 0}
@@ -251,9 +253,7 @@ export default function ProductDetail() {
                     <><ShoppingCart className="h-5 w-5" /> Adicionar ao Carrinho</>
                   )}
                 </button>
-              </Show>
-
-              <Show when="signed-out">
+              ) : (
                 <Link
                   href="/sign-in"
                   className="flex items-center justify-center gap-3 w-full py-4 rounded-xl font-black text-lg bg-primary text-black hover:bg-primary/90 transition-colors"
@@ -261,7 +261,7 @@ export default function ProductDetail() {
                 >
                   <ShoppingCart className="h-5 w-5" /> Entre para Comprar
                 </Link>
-              </Show>
+              )}
 
               <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
                 <Check className="h-4 w-4 text-primary" />

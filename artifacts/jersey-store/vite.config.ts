@@ -1,5 +1,6 @@
 import { defineConfig } from "vite";
 import path from "path";
+import react from "@vitejs/plugin-react";
 
 const rawPort = process.env.PORT;
 if (!rawPort) throw new Error("PORT environment variable is required but was not provided.");
@@ -11,8 +12,13 @@ if (!basePath) throw new Error("BASE_PATH environment variable is required but w
 
 export default defineConfig({
   base: basePath,
-  // Root is the artifact directory — Vite serves index.html from here
+  plugins: [react()],
   root: path.resolve(import.meta.dirname),
+  resolve: {
+    alias: {
+      "@": path.resolve(import.meta.dirname, "src"),
+    },
+  },
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
