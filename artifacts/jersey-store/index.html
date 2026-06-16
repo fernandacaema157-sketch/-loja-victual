@@ -5,61 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>JerseyStore — Camisetas Esportivas</title>
   <link rel="icon" href="/logo.svg" type="image/svg+xml" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
-
-  <!-- ===== NAVBAR ===== -->
-  <nav id="navbar">
-    <div class="nav-container">
-
-      <a href="#home" class="nav-logo">
-        <img src="/logo.svg" alt="JerseyStore" class="logo-img" />
-        <span>JERSEY<span class="accent">STORE</span></span>
-      </a>
-
-      <!-- Desktop nav links -->
-      <div class="nav-links" id="nav-links">
-        <a href="#shop" class="nav-link">Catálogo</a>
-        <a href="#orders" class="nav-link nav-auth-only hidden">Meus Pedidos</a>
-        <a href="#admin" class="nav-link nav-admin-only hidden">Admin</a>
-      </div>
-
-      <!-- Right side: cart + auth -->
-      <div class="nav-actions">
-        <a href="#cart" class="cart-btn" id="cart-btn" title="Carrinho">
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg>
-          <span class="cart-badge" id="cart-badge">0</span>
-        </a>
-        <div id="auth-area"></div>
-        <button class="hamburger" id="hamburger" aria-label="Menu">
-          <svg id="hamburger-icon" xmlns="http://www.w3.org/2000/svg" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
-        </button>
-      </div>
-    </div>
-
-    <!-- Mobile drawer -->
-    <div class="mobile-drawer" id="mobile-drawer">
-      <a href="#shop" class="mobile-link">Catálogo</a>
-      <a href="#orders" class="mobile-link mobile-auth-only hidden">Meus Pedidos</a>
-      <a href="#admin" class="mobile-link mobile-admin-only hidden">Admin</a>
-      <div class="mobile-auth-row" id="mobile-auth-row"></div>
-    </div>
-  </nav>
-
-  <!-- ===== MAIN CONTENT (rendered by JS) ===== -->
-  <main id="app">
-    <div class="page-loader"><div class="spinner"></div></div>
-  </main>
-
-  <!-- ===== TOAST NOTIFICATIONS ===== -->
-  <div id="toasts" aria-live="polite"></div>
-
-  <!-- Main app script (ES module — Vite replaces import.meta.env.*) -->
-  <!-- Clerk is loaded dynamically inside script.js after the key is available -->
-  <script type="module" src="./script.js"></script>
+  <div id="root"></div>
+  <script type="module" src="./src/main.tsx"></script>
 </body>
 </html>

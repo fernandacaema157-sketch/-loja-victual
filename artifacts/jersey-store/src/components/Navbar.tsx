@@ -1,21 +1,32 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
-import { Show, useUser, useClerk } from "@clerk/react";
 import { ShoppingCart, Menu, X, ChevronDown, LogOut, Package, LayoutDashboard } from "lucide-react";
-import { useGetCart } from "@workspace/api-client-react";
+import { useGetCart, getGetCartQueryKey } from "@workspace/api-client-react";
 import { useIsAdmin } from "@/hooks/useIsAdmin";
+import { useAuth } from "@/contexts/AuthContext";
+import { useQueryClient } from "@tanstack/react-query";
 import logoUrl from "/logo.svg";
 
 export default function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [location] = useLocation();
-  const { user } = useUser();
-  const { signOut } = useClerk();
-  const { data: cart } = useGetCart({ query: { enabled: !!user } });
+  const { user, isSignedIn, logout } = useAuth();
+  const qc = useQueryClient();
+  const { data: cart } = useGetCart({ query: { enabled: isSignedIn, queryKey: getGetCartQueryKey() } });
   const isAdmin = useIsAdmin();
 
   const cartCount = cart?.itemCount ?? 0;
+
+  const handleSignOut = () => {
+    logout();
+    qc.clear();
+    setUserMenuOpen(false);
+    setMobileOpen(false);
+  };
+
+  const displayName = user?.firstName ?? user?.email?.split("@")[0] ?? "Usuário";
+  const initials = (user?.firstName?.[0] ?? user?.email?.[0] ?? "U").toUpperCase();
 
   const navLinks = [
     { href: "/shop", label: "Catálogo" },
@@ -71,8 +82,8 @@ export default function Navbar() {
               )}
             </Link>
 
-            {/* Auth */}
-            <Show when="signed-out">
+            {/* Auth — signed out */}
+            {!isSignedIn && (
               <div className="hidden md:flex items-center gap-2">
                 <Link href="/sign-in" className="text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors" data-testid="link-sign-in">
                   Entrar
@@ -81,24 +92,21 @@ export default function Navbar() {
                   Cadastrar
                 </Link>
               </div>
-            </Show>
+            )}
 
-            <Show when="signed-in">
+            {/* Auth — signed in */}
+            {isSignedIn && (
               <div className="relative">
                 <button
                   onClick={() => setUserMenuOpen(!userMenuOpen)}
                   className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-secondary transition-colors"
                   data-testid="button-user-menu"
                 >
-                  {user?.imageUrl ? (
-                    <img src={user.imageUrl} alt="Avatar" className="h-7 w-7 rounded-full object-cover" />
-                  ) : (
-                    <div className="h-7 w-7 rounded-full bg-primary flex items-center justify-center text-black text-xs font-black">
-                      {user?.firstName?.[0] ?? user?.emailAddresses?.[0]?.emailAddress?.[0]?.toUpperCase() ?? "U"}
-                    </div>
-                  )}
+                  <div className="h-7 w-7 rounded-full bg-primary flex items-center justify-center text-black text-xs font-black">
+                    {initials}
+                  </div>
                   <span className="hidden md:block text-sm font-semibold max-w-24 truncate">
-                    {user?.firstName ?? user?.emailAddresses?.[0]?.emailAddress?.split("@")[0]}
+                    {displayName}
                   </span>
                   <ChevronDown className="h-3.5 w-3.5 text-muted-foreground hidden md:block" />
                 </button>
@@ -117,7 +125,7 @@ export default function Navbar() {
                     )}
                     <div className="border-t border-border" />
                     <button
-                      onClick={() => { signOut(); setUserMenuOpen(false); }}
+                      onClick={handleSignOut}
                       className="flex items-center gap-2 px-4 py-3 text-sm text-destructive hover:bg-secondary transition-colors w-full"
                       data-testid="button-sign-out"
                     >
@@ -127,7 +135,7 @@ export default function Navbar() {
                   </div>
                 )}
               </div>
-            </Show>
+            )}
 
             {/* Mobile toggle */}
             <button
@@ -160,7 +168,7 @@ export default function Navbar() {
                 Admin
               </Link>
             )}
-            <Show when="signed-out">
+            {!isSignedIn && (
               <div className="pt-2 flex gap-2 px-4">
                 <Link href="/sign-in" onClick={() => setMobileOpen(false)} className="flex-1 text-center py-2 text-sm font-semibold border border-border rounded-lg hover:bg-secondary transition-colors">
                   Entrar
@@ -169,17 +177,17 @@ export default function Navbar() {
                   Cadastrar
                 </Link>
               </div>
-            </Show>
-            <Show when="signed-in">
+            )}
+            {isSignedIn && (
               <div className="pt-2 px-4">
                 <button
-                  onClick={() => { signOut(); setMobileOpen(false); }}
+                  onClick={handleSignOut}
                   className="w-full py-2 text-sm font-semibold text-destructive border border-destructive/30 rounded-lg hover:bg-destructive/10 transition-colors"
                 >
                   Sair da conta
                 </button>
               </div>
-            </Show>
+            )}
           </div>
         )}
       </div>

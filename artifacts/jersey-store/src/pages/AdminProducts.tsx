@@ -51,7 +51,7 @@ export default function AdminProducts() {
     setShowForm(true);
   };
 
-  const handleOpenEdit = (p: (typeof products)[0]) => {
+  const handleOpenEdit = (p: NonNullable<typeof products>[number]) => {
     setForm({
       name: p.name, team: p.team, description: p.description ?? "",
       price: String(p.price), stock: String(p.stock),
