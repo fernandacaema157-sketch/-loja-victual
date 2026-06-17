@@ -1,61 +1,10 @@
 import { Router, type IRouter } from "express";
 import { eq, sql, count } from "drizzle-orm";
 import { db, ordersTable, orderItemsTable, productsTable, guestOrdersTable, usersTable } from "@workspace/db";
-import { getAuth, clerkClient } from "@clerk/express";
+import { requireAdmin } from "../middlewares/jwtMiddleware";
 import { ListAllOrdersQueryParams, UpdateOrderStatusBody, UpdateOrderStatusParams } from "@workspace/api-zod";
 
-const ADMIN_EMAILS = (process.env.ADMIN_EMAILS ?? "")
-  .split(",")
-  .map((e) => e.trim().toLowerCase())
-  .filter(Boolean);
-
 const router: IRouter = Router();
-
-const requireAuth = (req: any, res: any, next: any) => {
-  const auth = getAuth(req);
-  if (!auth?.userId) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-  req.userId = auth.userId;
-  next();
-};
-
-const requireAdmin = async (req: any, res: any, next: any) => {
-  const auth = getAuth(req);
-  if (!auth?.userId) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-  req.userId = auth.userId;
-
-  try {
-    const clerkUser = await clerkClient.users.getUser(auth.userId);
-    const primaryEmail = clerkUser.emailAddresses.find(
-      (e: { id: string; emailAddress: string }) => e.id === clerkUser.primaryEmailAddressId,
-    )?.emailAddress ?? clerkUser.emailAddresses[0]?.emailAddress ?? "";
-
-    if (ADMIN_EMAILS.includes(primaryEmail.toLowerCase())) {
-      next();
-      return;
-    }
-
-    const [dbUser] = await db
-      .select({ isAdmin: usersTable.isAdmin })
-      .from(usersTable)
-      .where(eq(usersTable.clerkId, auth.userId));
-
-    if (dbUser?.isAdmin) {
-      next();
-      return;
-    }
-  } catch {
-    res.status(403).json({ error: "Forbidden" });
-    return;
-  }
-
-  res.status(403).json({ error: "Forbidden" });
-};
 
 router.get("/admin/stats", requireAdmin, async (_req, res): Promise<void> => {
   const now = new Date();
@@ -138,10 +87,13 @@ router.get("/admin/orders", requireAdmin, async (req, res): Promise<void> => {
         .from(orderItemsTable)
         .where(eq(orderItemsTable.orderId, order.id));
 
-      const [user] = await db
-        .select({ firstName: usersTable.firstName, lastName: usersTable.lastName, email: usersTable.email })
-        .from(usersTable)
-        .where(eq(usersTable.clerkId, order.userId));
+      const userId = Number(order.userId);
+      const [user] = userId
+        ? await db
+            .select({ firstName: usersTable.firstName, lastName: usersTable.lastName, email: usersTable.email })
+            .from(usersTable)
+            .where(eq(usersTable.id, userId))
+        : [undefined];
 
       const customerName = user
         ? [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email

@@ -1,0 +1,1 @@
+- [JWT Auth Migration](jwt-auth.md) — Clerk foi completamente removido; sistema de auth próprio com JWT + bcryptjs implementado do zero.

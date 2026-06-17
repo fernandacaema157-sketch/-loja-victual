@@ -6,8 +6,6 @@ import {
   jsonb,
   timestamp,
 } from "drizzle-orm/pg-core";
-import { createInsertSchema } from "drizzle-zod";
-import { z } from "zod";
 
 export const guestOrdersTable = pgTable("guest_orders", {
   id: serial("id").primaryKey(),
@@ -34,11 +32,5 @@ export type GuestOrderItem = {
   customNumber?: string;
 };
 
-export const insertGuestOrderSchema = createInsertSchema(guestOrdersTable).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
-
-export type InsertGuestOrder = z.infer<typeof insertGuestOrderSchema>;
+export type InsertGuestOrder = typeof guestOrdersTable.$inferInsert;
 export type GuestOrder = typeof guestOrdersTable.$inferSelect;

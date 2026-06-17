@@ -1,5 +1,3 @@
-// Clerk is loaded dynamically in initAuth() — no static import needed
-
 /**
  * JerseyStore — Vanilla JS SPA
  *
@@ -8,7 +6,7 @@
  *  2. STATE         — app-level state object
  *  3. ICONS         — inline SVG helpers
  *  4. API           — Fetch API wrappers (async/await)
- *  5. AUTH          — Clerk JS initialization & helpers
+ *  5. AUTH          — JWT-based authentication
  *  6. CART          — localStorage (guest) + server (logged-in)
  *  7. TOAST         — notification system
  *  8. ROUTER        — hash-based SPA routing
@@ -22,7 +20,7 @@
 // 1. CONFIG
 // ============================================================
 
-const CLERK_KEY       = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY || '';
+const JWT_TOKEN_KEY   = 'jerseystore_token';
 const STORE_WHATSAPP  = import.meta.env.VITE_STORE_WHATSAPP || '5511999999999';
 const CART_LS_KEY     = 'jerseystore_cart'; // localStorage key for guest cart
 const TEAM_IMAGES = {
@@ -41,8 +39,7 @@ const TEAM_IMAGES = {
 // ============================================================
 
 const state = {
-  clerk:       null,   // Clerk instance (from CDN)
-  user:        null,   // current Clerk user object (or null)
+  user:        null,   // current user object { id, email, firstName, lastName, isAdmin } or null
   // Transient checkout data passed from cart → checkout page
   checkout: {
     shippingMethod: 'standard',
@@ -93,11 +90,8 @@ const ic = {
  * Throws an Error for non-OK responses.
  */
 async function apiFetch(path, options = {}) {
-  // Get a short-lived JWT from the active Clerk session (if any)
-  let token = null;
-  if (state.clerk?.session) {
-    try { token = await state.clerk.session.getToken(); } catch (_) {}
-  }
+  // Get JWT token from localStorage
+  const token = localStorage.getItem(JWT_TOKEN_KEY);
 
   const headers = {
     'Content-Type': 'application/json',
@@ -155,88 +149,42 @@ const api = {
 };
 
 // ============================================================
-// 5. AUTH  — Clerk JS (loaded from CDN as window.Clerk)
+// 5. AUTH  — JWT (token stored in localStorage)
 // ============================================================
 
-/** Dynamically load the Clerk browser bundle from CDN (includes full UI components).
- *  Setting data-clerk-publishable-key on the script element tells Clerk to
- *  auto-initialize with our key so it never throws "Missing publishableKey". */
-function loadClerkCDN() {
-  return new Promise((resolve, reject) => {
-    // Already loaded — window.Clerk may be the auto-init instance or the class
-    if (window.Clerk) { resolve(); return; }
-
-    const script = document.createElement('script');
-    script.setAttribute('data-clerk-publishable-key', CLERK_KEY);
-    script.src = 'https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js';
-    script.crossOrigin = 'anonymous';
-    script.onload = resolve;
-    script.onerror = () => reject(new Error('Failed to load Clerk CDN'));
-    document.head.appendChild(script);
-  });
-}
-
-/** Boot Clerk, listen for auth state changes */
-async function initAuth() {
-  if (!CLERK_KEY) return; // gracefully skip if no key
-
-  await loadClerkCDN();
-
-  // When loaded with data-clerk-publishable-key, window.Clerk is the singleton instance.
-  // Calling load() is idempotent; it resolves immediately if already done.
-  state.clerk = window.Clerk;
-  await state.clerk.load();
-
-  // Initial user state
-  state.user = state.clerk.user || null;
-
-  // React to sign-in / sign-out events
-  state.clerk.addListener(({ user }) => {
-    const wasLoggedIn = !!state.user;
-    state.user = user || null;
-
-    if (!wasLoggedIn && state.user) {
-      // User just signed in → sync user to DB, then merge local cart
-      syncUserToDB(state.user).finally(() => {
-        mergeLocalCartToServer().then(() => {
-          updateNavbar();
-          navigate('#shop');
-        });
-      });
-    } else if (wasLoggedIn && !state.user) {
-      // User signed out
-      updateNavbar();
-      navigate('#home');
-    } else {
-      updateNavbar();
-    }
-  });
-}
-
 function isLoggedIn() { return !!state.user; }
-function isAdmin() {
-  const adminEmail = import.meta.env.VITE_ADMIN_EMAIL || '';
-  if (!adminEmail || !state.user) return false;
-  return state.user.emailAddresses?.some(e =>
-    e.emailAddress?.toLowerCase() === adminEmail.toLowerCase()
-  ) ?? false;
+function isAdmin()    { return !!state.user?.isAdmin; }
+
+/** Save token and user to state + localStorage */
+function authSetSession(token, user) {
+  localStorage.setItem(JWT_TOKEN_KEY, token);
+  state.user = user;
 }
 
-async function syncUserToDB(user) {
-  if (!user) return;
-  const email = user.primaryEmailAddress?.emailAddress
-    || user.emailAddresses?.[0]?.emailAddress;
-  if (!email) return;
+/** Clear session on logout */
+function authClearSession() {
+  localStorage.removeItem(JWT_TOKEN_KEY);
+  state.user = null;
+}
+
+/** Verify stored token with server and restore session */
+async function initAuth() {
+  const token = localStorage.getItem(JWT_TOKEN_KEY);
+  if (!token) return;
   try {
-    await apiFetch('/users/sync', {
-      method: 'POST',
-      body: JSON.stringify({
-        email,
-        firstName: user.firstName || undefined,
-        lastName: user.lastName || undefined,
-      }),
-    });
-  } catch (_) {}
+    const user = await apiFetch('/auth/me');
+    state.user = user;
+  } catch (_) {
+    // Token expired or invalid — clear it
+    localStorage.removeItem(JWT_TOKEN_KEY);
+  }
+}
+
+/** Sign out */
+async function logout() {
+  authClearSession();
+  updateNavbar();
+  navigate('#home');
 }
 
 // ============================================================
@@ -424,13 +372,6 @@ async function handleRoute() {
   });
 
   try {
-    // Auth-gated pages: wait for Clerk to finish loading before checking login
-    // so a logged-in user isn't wrongly kicked to sign-in on first load.
-    const authGated = ['checkout','orders','order','admin','admin-products'];
-    if (authGated.includes(page)) {
-      await state.authReady;
-    }
-
     switch (page) {
       case 'home':            await renderHome(); break;
       case 'shop':            await renderShop(params); break;
@@ -1847,7 +1788,7 @@ async function renderTrack(params = {}) {
   if (orderNum) {
     app.innerHTML = `<div class="page-loader"><div class="spinner"></div></div>`;
     try {
-      const order = await api.guestOrder.get(orderNum);
+      const order = await api.guestOrders.get(orderNum);
       app.innerHTML = orderResult(order);
     } catch (_) {
       app.innerHTML = searchForm(orderNum, `Pedido <strong>${orderNum}</strong> não encontrado. Verifique o número e tente novamente.`);
@@ -1876,32 +1817,120 @@ async function renderTrack(params = {}) {
 
 async function renderSignIn() {
   if (isLoggedIn()) { navigate('#shop'); return; }
-  document.getElementById('app').innerHTML = `
+  const app = document.getElementById('app');
+  app.innerHTML = `
   <div class="auth-page">
-    <div id="clerk-sign-in-mount"></div>
+    <div class="auth-card">
+      <div class="auth-logo">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+      </div>
+      <h1 class="auth-title">Entrar</h1>
+      <p class="auth-subtitle">Bem-vindo de volta!</p>
+      <div id="auth-error" class="auth-error" style="display:none"></div>
+      <form id="sign-in-form" class="auth-form" novalidate>
+        <div class="form-group">
+          <label for="si-email">E-mail</label>
+          <input id="si-email" type="email" name="email" placeholder="seu@email.com" autocomplete="email" required />
+        </div>
+        <div class="form-group">
+          <label for="si-password">Senha</label>
+          <input id="si-password" type="password" name="password" placeholder="••••••••" autocomplete="current-password" required />
+        </div>
+        <button type="submit" class="btn btn-primary" style="width:100%;margin-top:.5rem" id="si-btn">Entrar</button>
+      </form>
+      <p class="auth-switch">Não tem conta? <a href="#sign-up">Cadastrar</a></p>
+    </div>
   </div>`;
-  if (state.clerk) {
-    state.clerk.mountSignIn(document.getElementById('clerk-sign-in-mount'), {
-      routing: 'hash',
-      signUpUrl: '#sign-up',
-    });
-  }
+
+  document.getElementById('sign-in-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn   = document.getElementById('si-btn');
+    const err   = document.getElementById('auth-error');
+    const email = document.getElementById('si-email').value.trim();
+    const pass  = document.getElementById('si-password').value;
+    btn.disabled = true; btn.textContent = 'Entrando...';
+    err.style.display = 'none';
+    try {
+      const { token, user } = await apiFetch('/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ email, password: pass }),
+      });
+      authSetSession(token, user);
+      await mergeLocalCartToServer();
+      updateNavbar();
+      navigate('#shop');
+    } catch (ex) {
+      err.textContent = ex.message;
+      err.style.display = 'block';
+      btn.disabled = false; btn.textContent = 'Entrar';
+    }
+  });
 }
 
 // ── SIGN UP ──────────────────────────────────────────────────
 
 async function renderSignUp() {
   if (isLoggedIn()) { navigate('#shop'); return; }
-  document.getElementById('app').innerHTML = `
+  const app = document.getElementById('app');
+  app.innerHTML = `
   <div class="auth-page">
-    <div id="clerk-sign-up-mount"></div>
+    <div class="auth-card">
+      <div class="auth-logo">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+      </div>
+      <h1 class="auth-title">Criar Conta</h1>
+      <p class="auth-subtitle">Junte-se à JerseyStore</p>
+      <div id="auth-error" class="auth-error" style="display:none"></div>
+      <form id="sign-up-form" class="auth-form" novalidate>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem">
+          <div class="form-group">
+            <label for="su-fname">Nome</label>
+            <input id="su-fname" type="text" name="firstName" placeholder="João" autocomplete="given-name" />
+          </div>
+          <div class="form-group">
+            <label for="su-lname">Sobrenome</label>
+            <input id="su-lname" type="text" name="lastName" placeholder="Silva" autocomplete="family-name" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="su-email">E-mail</label>
+          <input id="su-email" type="email" name="email" placeholder="seu@email.com" autocomplete="email" required />
+        </div>
+        <div class="form-group">
+          <label for="su-password">Senha <span style="color:var(--muted);font-weight:400;font-size:.78rem">(mínimo 6 caracteres)</span></label>
+          <input id="su-password" type="password" name="password" placeholder="••••••••" autocomplete="new-password" required />
+        </div>
+        <button type="submit" class="btn btn-primary" style="width:100%;margin-top:.5rem" id="su-btn">Criar Conta</button>
+      </form>
+      <p class="auth-switch">Já tem conta? <a href="#sign-in">Entrar</a></p>
+    </div>
   </div>`;
-  if (state.clerk) {
-    state.clerk.mountSignUp(document.getElementById('clerk-sign-up-mount'), {
-      routing: 'hash',
-      signInUrl: '#sign-in',
-    });
-  }
+
+  document.getElementById('sign-up-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn       = document.getElementById('su-btn');
+    const err       = document.getElementById('auth-error');
+    const email     = document.getElementById('su-email').value.trim();
+    const pass      = document.getElementById('su-password').value;
+    const firstName = document.getElementById('su-fname').value.trim();
+    const lastName  = document.getElementById('su-lname').value.trim();
+    btn.disabled = true; btn.textContent = 'Criando conta...';
+    err.style.display = 'none';
+    try {
+      const { token, user } = await apiFetch('/auth/register', {
+        method: 'POST',
+        body: JSON.stringify({ email, password: pass, firstName, lastName }),
+      });
+      authSetSession(token, user);
+      await mergeLocalCartToServer();
+      updateNavbar();
+      navigate('#shop');
+    } catch (ex) {
+      err.textContent = ex.message;
+      err.style.display = 'block';
+      btn.disabled = false; btn.textContent = 'Criar Conta';
+    }
+  });
 }
 
 // ── ADMIN ────────────────────────────────────────────────────
@@ -2324,15 +2353,12 @@ function updateNavbar() {
 
   if (isLoggedIn()) {
     const user = state.user;
-    const name = user?.firstName || user?.emailAddresses?.[0]?.emailAddress?.split('@')[0] || 'Usuário';
+    const name = user?.firstName || user?.email?.split('@')[0] || 'Usuário';
     const initial = name[0]?.toUpperCase() || 'U';
-    const avatar = user?.imageUrl;
 
     authArea.innerHTML = `
     <div class="user-menu-btn" id="user-menu-btn">
-      <div class="user-avatar">
-        ${avatar ? `<img src="${avatar}" alt="${name}" />` : initial}
-      </div>
+      <div class="user-avatar">${initial}</div>
       <span class="user-name">${name}</span>
       <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
       <div class="user-dropdown" id="user-dropdown" style="display:none">
@@ -2348,9 +2374,7 @@ function updateNavbar() {
       const dd = document.getElementById('user-dropdown');
       if (dd) dd.style.display = dd.style.display === 'none' ? 'block' : 'none';
     });
-    document.getElementById('sign-out-btn')?.addEventListener('click', async () => {
-      await state.clerk?.signOut();
-    });
+    document.getElementById('sign-out-btn')?.addEventListener('click', () => logout());
     document.addEventListener('click', () => {
       const dd = document.getElementById('user-dropdown');
       if (dd) dd.style.display = 'none';
@@ -2358,7 +2382,7 @@ function updateNavbar() {
 
     if (mobileRow) {
       mobileRow.innerHTML = `<button id="mobile-sign-out" class="btn btn-danger btn-sm" style="width:100%">${ic.logout} Sair da conta</button>`;
-      document.getElementById('mobile-sign-out')?.addEventListener('click', () => state.clerk?.signOut());
+      document.getElementById('mobile-sign-out')?.addEventListener('click', () => logout());
     }
   } else {
     authArea.innerHTML = `
@@ -2409,32 +2433,15 @@ document.addEventListener('click', (e) => {
 // 13. INIT
 // ============================================================
 
-// Promise that resolves once Clerk is fully loaded.
-// handleRoute() awaits this only for auth-gated pages.
-let authReadyResolve;
-state.authReady = new Promise(r => { authReadyResolve = r; });
-
 async function init() {
-  // Listen for hash changes immediately so navigation always works
+  // Listen for hash changes
   window.addEventListener('hashchange', handleRoute);
 
-  // Start loading Clerk in the background — don't block first render
-  initAuth()
-    .then(() => {
-      updateNavbar();
-      authReadyResolve();
-      // Re-render if we're on an auth-gated page (may have rendered spinner)
-      const { page } = getRoute();
-      if (['checkout','orders','order','admin','admin-products'].includes(page)) {
-        handleRoute();
-      }
-    })
-    .catch(err => {
-      console.error('Clerk init failed:', err);
-      authReadyResolve(); // unblock routes even if Clerk fails
-    });
+  // Restore session from localStorage (synchronously checks token, then verifies with server)
+  await initAuth();
+  updateNavbar();
 
-  // Render the initial page immediately — public pages show at once
+  // Render the initial page
   await handleRoute();
 }
 

@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { eq, ilike, and, gte, lte, sql } from "drizzle-orm";
 import { db, productsTable } from "@workspace/db";
-import { getAuth } from "@clerk/express";
+import { requireAdmin } from "../middlewares/jwtMiddleware";
 import {
   ListProductsQueryParams,
   CreateProductBody,
@@ -20,37 +20,40 @@ router.get("/products", async (req, res): Promise<void> => {
     return;
   }
 
-  const { team, size, minPrice, maxPrice, search, inStock } = parsed.data;
-  const conditions = [];
+  const { search, team, minPrice, maxPrice } = parsed.data;
+  const page  = Math.max(1, Number(req.query.page)  || 1);
+  const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20));
 
+  const conditions = [];
+  if (search) conditions.push(ilike(productsTable.name, `%${search}%`));
   if (team) conditions.push(eq(productsTable.team, team));
-  if (minPrice !== undefined)
-    conditions.push(gte(productsTable.price, String(minPrice)));
-  if (maxPrice !== undefined)
-    conditions.push(lte(productsTable.price, String(maxPrice)));
-  if (search)
-    conditions.push(
-      ilike(productsTable.name, `%${search}%`),
-    );
-  if (inStock) conditions.push(gte(productsTable.stock, 1));
-  if (size) {
-    conditions.push(sql`${productsTable.sizes} @> ARRAY[${size}]::text[]`);
-  }
+  if (minPrice !== undefined) conditions.push(gte(productsTable.price, String(minPrice)));
+  if (maxPrice !== undefined) conditions.push(lte(productsTable.price, String(maxPrice)));
+
+  const offset = (page - 1) * limit;
 
   const products = await db
     .select()
     .from(productsTable)
     .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .orderBy(productsTable.createdAt);
+    .limit(limit)
+    .offset(offset);
 
-  const mapped = products.map((p) => ({
-    ...p,
-    price: Number(p.price),
-    isFeatured: p.isFeatured,
-    allowCustomization: p.allowCustomization,
-    createdAt: p.createdAt.toISOString(),
-  }));
-  res.json(mapped);
+  const [{ count }] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(productsTable)
+    .where(conditions.length > 0 ? and(...conditions) : undefined);
+
+  res.json({
+    products: products.map((p) => ({
+      ...p,
+      price: Number(p.price),
+      createdAt: p.createdAt.toISOString(),
+    })),
+    total: Number(count),
+    page,
+    limit,
+  });
 });
 
 router.get("/products/featured", async (_req, res): Promise<void> => {
@@ -60,38 +63,35 @@ router.get("/products/featured", async (_req, res): Promise<void> => {
     .where(eq(productsTable.isFeatured, true))
     .limit(6);
 
-  const mapped = products.map((p) => ({
-    ...p,
-    price: Number(p.price),
-    createdAt: p.createdAt.toISOString(),
-  }));
-  res.json(mapped);
+  res.json(
+    products.map((p) => ({
+      ...p,
+      price: Number(p.price),
+      createdAt: p.createdAt.toISOString(),
+    })),
+  );
 });
 
 router.get("/products/teams", async (_req, res): Promise<void> => {
   const teams = await db
-    .select({
-      team: productsTable.team,
-      count: sql<number>`cast(count(*) as int)`,
-    })
+    .selectDistinct({ team: productsTable.team })
     .from(productsTable)
-    .groupBy(productsTable.team)
     .orderBy(productsTable.team);
 
-  res.json(teams.map((t) => ({ name: t.team, count: t.count })));
+  res.json(teams.map((t) => t.team));
 });
 
 router.get("/products/:id", async (req, res): Promise<void> => {
-  const params = GetProductParams.safeParse(req.params);
-  if (!params.success) {
-    res.status(400).json({ error: params.error.message });
+  const parsed = GetProductParams.safeParse(req.params);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
     return;
   }
 
   const [product] = await db
     .select()
     .from(productsTable)
-    .where(eq(productsTable.id, params.data.id));
+    .where(eq(productsTable.id, parsed.data.id));
 
   if (!product) {
     res.status(404).json({ error: "Product not found" });
@@ -101,13 +101,7 @@ router.get("/products/:id", async (req, res): Promise<void> => {
   res.json({ ...product, price: Number(product.price), createdAt: product.createdAt.toISOString() });
 });
 
-router.post("/products", async (req, res): Promise<void> => {
-  const auth = getAuth(req);
-  if (!auth?.userId) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-
+router.post("/products", requireAdmin, async (req, res): Promise<void> => {
   const parsed = CreateProductBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -127,13 +121,7 @@ router.post("/products", async (req, res): Promise<void> => {
   res.status(201).json({ ...product, price: Number(product.price), createdAt: product.createdAt.toISOString() });
 });
 
-router.patch("/products/:id", async (req, res): Promise<void> => {
-  const auth = getAuth(req);
-  if (!auth?.userId) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-
+router.patch("/products/:id", requireAdmin, async (req, res): Promise<void> => {
   const params = UpdateProductParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -165,13 +153,7 @@ router.patch("/products/:id", async (req, res): Promise<void> => {
   res.json({ ...product, price: Number(product.price), createdAt: product.createdAt.toISOString() });
 });
 
-router.delete("/products/:id", async (req, res): Promise<void> => {
-  const auth = getAuth(req);
-  if (!auth?.userId) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-
+router.delete("/products/:id", requireAdmin, async (req, res): Promise<void> => {
   const params = DeleteProductParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -188,7 +170,7 @@ router.delete("/products/:id", async (req, res): Promise<void> => {
     return;
   }
 
-  res.sendStatus(204);
+  res.json({ success: true });
 });
 
 export default router;

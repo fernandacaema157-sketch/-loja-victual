@@ -1,20 +1,10 @@
 import { Router, type IRouter } from "express";
 import { eq, and } from "drizzle-orm";
 import { db, ordersTable, orderItemsTable, cartItemsTable, productsTable } from "@workspace/db";
-import { getAuth } from "@clerk/express";
+import { requireAuth } from "../middlewares/jwtMiddleware";
 import { CreateOrderBody, GetOrderParams, ProcessPaymentBody, ProcessPaymentParams } from "@workspace/api-zod";
 
 const router: IRouter = Router();
-
-const requireAuth = (req: any, res: any, next: any) => {
-  const auth = getAuth(req);
-  if (!auth?.userId) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-  req.userId = auth.userId;
-  next();
-};
 
 function mapOrder(order: any, items: any[]) {
   return {
