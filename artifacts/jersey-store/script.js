@@ -424,6 +424,13 @@ async function handleRoute() {
   });
 
   try {
+    // Auth-gated pages: wait for Clerk to finish loading before checking login
+    // so a logged-in user isn't wrongly kicked to sign-in on first load.
+    const authGated = ['checkout','orders','order','admin','admin-products'];
+    if (authGated.includes(page)) {
+      await state.authReady;
+    }
+
     switch (page) {
       case 'home':            await renderHome(); break;
       case 'shop':            await renderShop(params); break;
@@ -2238,17 +2245,32 @@ document.addEventListener('click', (e) => {
 // 13. INIT
 // ============================================================
 
+// Promise that resolves once Clerk is fully loaded.
+// handleRoute() awaits this only for auth-gated pages.
+let authReadyResolve;
+state.authReady = new Promise(r => { authReadyResolve = r; });
+
 async function init() {
-  // Boot Clerk auth
-  await initAuth();
-
-  // Update navbar with auth state
-  updateNavbar();
-
-  // Listen for hash changes (user navigates)
+  // Listen for hash changes immediately so navigation always works
   window.addEventListener('hashchange', handleRoute);
 
-  // Render the initial route
+  // Start loading Clerk in the background — don't block first render
+  initAuth()
+    .then(() => {
+      updateNavbar();
+      authReadyResolve();
+      // Re-render if we're on an auth-gated page (may have rendered spinner)
+      const { page } = getRoute();
+      if (['checkout','orders','order','admin','admin-products'].includes(page)) {
+        handleRoute();
+      }
+    })
+    .catch(err => {
+      console.error('Clerk init failed:', err);
+      authReadyResolve(); // unblock routes even if Clerk fails
+    });
+
+  // Render the initial page immediately — public pages show at once
   await handleRoute();
 }
 
