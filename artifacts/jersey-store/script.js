@@ -456,6 +456,7 @@ async function handleRoute() {
         if (!isLoggedIn()) { navigate('#sign-in'); return; }
         await renderAdminProducts();
         break;
+      case 'track':           await renderTrack(params); break;
       case 'sign-in':         await renderSignIn(); break;
       case 'sign-up':         await renderSignUp(); break;
       default:
@@ -633,6 +634,11 @@ async function renderHome() {
     <div style="display:flex;align-items:center;justify-content:center;gap:.5rem;margin-bottom:.75rem">
       <img src="/logo.svg" alt="" style="width:1.5rem;height:1.5rem" />
       <span style="font-weight:900">JERSEY<span class="accent">STORE</span></span>
+    </div>
+    <div style="display:flex;justify-content:center;gap:1.5rem;margin-bottom:.75rem;flex-wrap:wrap">
+      <a href="#shop" style="font-size:.8rem;color:var(--muted);transition:color .15s" onmouseover="this.style.color='var(--foreground)'" onmouseout="this.style.color='var(--muted)'">Catálogo</a>
+      <a href="#track" style="font-size:.8rem;color:var(--muted);transition:color .15s" onmouseover="this.style.color='var(--primary)'" onmouseout="this.style.color='var(--muted)'">${ic.truck} Rastrear Pedido</a>
+      ${!isLoggedIn() ? `<a href="#sign-in" style="font-size:.8rem;color:var(--muted);transition:color .15s" onmouseover="this.style.color='var(--foreground)'" onmouseout="this.style.color='var(--muted)'">Entrar</a>` : ''}
     </div>
     <p style="font-size:.8rem;color:var(--muted)">&copy; ${new Date().getFullYear()} JerseyStore. Todos os direitos reservados.</p>
   </footer>`;
@@ -1360,6 +1366,34 @@ function showGuestCheckoutModal(items) {
       const waUrl = `https://wa.me/${STORE_WHATSAPP}?text=${encodeURIComponent(msg)}`;
 
       close();
+
+      // Show success overlay with tracking link
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      overlay.innerHTML = `
+        <div class="modal-box" style="max-width:26rem;text-align:center">
+          <div style="font-size:2.5rem;margin-bottom:.75rem">🎉</div>
+          <h2 style="font-size:1.1rem;font-weight:900;margin-bottom:.4rem">Pedido criado com sucesso!</h2>
+          <p style="font-size:.85rem;color:var(--muted);margin-bottom:1rem">
+            Seu pedido <strong style="color:var(--primary)">${order.orderNumber}</strong> foi registrado.<br>
+            O WhatsApp vai abrir em instantes para confirmar com a loja.
+          </p>
+          <div style="background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:var(--radius);padding:.85rem 1rem;margin-bottom:1.25rem">
+            <p style="font-size:.75rem;color:var(--muted);margin-bottom:.3rem">Guarde seu número de pedido para rastrear</p>
+            <p style="font-size:1.4rem;font-weight:900;letter-spacing:.1em;color:var(--primary)">${order.orderNumber}</p>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:.6rem">
+            <a href="#track?order=${order.orderNumber}" class="btn btn-outline w-full" style="justify-content:center" onclick="this.closest('.modal-overlay').remove()">
+              ${ic.truck} Rastrear este pedido
+            </a>
+            <button class="btn btn-primary w-full" style="justify-content:center" onclick="this.closest('.modal-overlay').remove()">
+              Fechar
+            </button>
+          </div>
+        </div>`;
+      document.body.appendChild(overlay);
+      overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+
       toast(`Pedido ${order.orderNumber} criado! Abrindo WhatsApp...`, 'success', 4000);
       setTimeout(() => window.open(waUrl, '_blank'), 600);
 
@@ -1706,6 +1740,136 @@ async function renderOrderDetail(params) {
       </div>
     </div>
   </div>`;
+}
+
+// ── TRACK ORDER ─────────────────────────────────────────────
+
+async function renderTrack(params = {}) {
+  const app = document.getElementById('app');
+  const orderNum = (params.order || '').trim().toUpperCase();
+
+  const statusLabel = { pending: 'Pendente', confirmed: 'Confirmado', shipped: 'Enviado', delivered: 'Entregue', cancelled: 'Cancelado' };
+  const statusColor = { pending: '#f59e0b', confirmed: '#3b82f6', shipped: '#8b5cf6', delivered: 'var(--primary)', cancelled: 'var(--destructive)' };
+  const statusStep  = { pending: 1, confirmed: 2, shipped: 3, delivered: 4, cancelled: 0 };
+  const steps       = ['Recebido', 'Confirmado', 'Enviado', 'Entregue'];
+
+  function searchForm(value = '', error = '') {
+    return `
+    <div class="track-page page">
+      <div class="track-card">
+        <div class="track-icon">${ic.truck}</div>
+        <h1 class="track-title">Rastrear Pedido</h1>
+        <p class="track-sub">Informe o número do seu pedido convidado (ex: G123456)</p>
+        ${error ? `<div class="track-error">${error}</div>` : ''}
+        <form id="track-form" class="track-form">
+          <input id="track-input" class="track-input" type="text" placeholder="Ex: G123456"
+            value="${value}" maxlength="10" autocomplete="off"
+            style="text-transform:uppercase" />
+          <button type="submit" class="btn btn-primary" style="justify-content:center">
+            Buscar ${ic.arrow_right}
+          </button>
+        </form>
+        <p class="track-hint">O número do pedido foi enviado junto ao link do WhatsApp ao finalizar a compra.</p>
+      </div>
+    </div>`;
+  }
+
+  function orderResult(order) {
+    const st    = order.status;
+    const step  = statusStep[st] || 0;
+    const color = statusColor[st] || 'var(--muted)';
+    const label = statusLabel[st] || st;
+    const cancelled = st === 'cancelled';
+
+    const stepsHtml = cancelled
+      ? `<div class="track-cancelled">Pedido cancelado</div>`
+      : `<div class="track-steps">
+          ${steps.map((s, i) => {
+            const n    = i + 1;
+            const done = step > n;
+            const cur  = step === n;
+            return `
+            <div class="track-step ${done ? 'done' : cur ? 'active' : ''}">
+              <div class="track-step-dot"></div>
+              ${i < steps.length - 1 ? `<div class="track-step-line ${done ? 'done' : ''}"></div>` : ''}
+              <span class="track-step-label">${s}</span>
+            </div>`;
+          }).join('')}
+        </div>`;
+
+    const itemsHtml = (order.items || []).map(item => `
+      <div class="track-item">
+        <div class="track-item-info">
+          <span class="track-item-name">${item.productName || item.name || 'Produto'}</span>
+          <span class="track-item-meta">${item.team || ''} · Tam. ${item.size} · ×${item.quantity}</span>
+        </div>
+        <span class="track-item-price">${fmtPrice((item.price || 0) * item.quantity)}</span>
+      </div>`).join('');
+
+    return `
+    <div class="track-page page">
+      <div class="track-card track-result">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem;margin-bottom:1.25rem">
+          <div>
+            <p style="font-size:.75rem;color:var(--muted);margin-bottom:.2rem">Número do pedido</p>
+            <p style="font-size:1.3rem;font-weight:900;color:var(--primary)">${order.orderNumber}</p>
+          </div>
+          <div class="track-status-badge" style="background:${color}22;color:${color};border:1px solid ${color}44">
+            ${label}
+          </div>
+        </div>
+
+        ${stepsHtml}
+
+        <div class="track-section">
+          <p class="track-section-title">Dados do Pedido</p>
+          <div class="info-row"><span class="info-key">Cliente</span><span class="info-val">${order.guestName}</span></div>
+          <div class="info-row"><span class="info-key">Data</span><span class="info-val">${new Date(order.createdAt).toLocaleDateString('pt-BR', { day:'2-digit', month:'short', year:'numeric' })}</span></div>
+        </div>
+
+        <div class="track-section">
+          <p class="track-section-title">Itens</p>
+          ${itemsHtml}
+        </div>
+
+        <div class="track-total">
+          <span>Total</span>
+          <span style="color:var(--primary);font-weight:900">${fmtPrice(order.total)}</span>
+        </div>
+
+        <button class="btn btn-outline w-full" style="justify-content:center;margin-top:1.5rem"
+          onclick="navigate('#track')">← Buscar outro pedido</button>
+      </div>
+    </div>`;
+  }
+
+  // If order number provided in URL, fetch immediately
+  if (orderNum) {
+    app.innerHTML = `<div class="page-loader"><div class="spinner"></div></div>`;
+    try {
+      const order = await api.guestOrder.get(orderNum);
+      app.innerHTML = orderResult(order);
+    } catch (_) {
+      app.innerHTML = searchForm(orderNum, `Pedido <strong>${orderNum}</strong> não encontrado. Verifique o número e tente novamente.`);
+      attachTrackForm();
+    }
+    return;
+  }
+
+  app.innerHTML = searchForm();
+  attachTrackForm();
+
+  function attachTrackForm() {
+    document.getElementById('track-form')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const val = document.getElementById('track-input')?.value.trim().toUpperCase();
+      if (!val) return;
+      navigate(`#track?order=${val}`);
+    });
+    document.getElementById('track-input')?.addEventListener('input', (e) => {
+      e.target.value = e.target.value.toUpperCase();
+    });
+  }
 }
 
 // ── SIGN IN ──────────────────────────────────────────────────
