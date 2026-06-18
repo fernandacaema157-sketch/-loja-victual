@@ -1007,6 +1007,16 @@ ul { list-style: none; }
   background: #fff;
   color: #1f1f1f;
 }
+.auth-success {
+  background: rgba(0,255,136,.12);
+  border: 1px solid rgba(0,255,136,.35);
+  color: #00ff88;
+  border-radius: var(--radius);
+  padding: .7rem 1rem;
+  font-size: .88rem;
+  margin-bottom: .75rem;
+  text-align: center;
+}
 .auth-divider {
   display: flex;
   align-items: center;

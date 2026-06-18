@@ -1,9 +1,11 @@
 import { Router, type IRouter } from "express";
-import { eq } from "drizzle-orm";
+import { eq, and, gt } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import https from "https";
+import crypto from "crypto";
 import { db, usersTable } from "@workspace/db";
 import { signToken, requireAuth } from "../middlewares/jwtMiddleware";
+import { sendPasswordResetEmail } from "../utils/mailer";
 
 const router: IRouter = Router();
 
@@ -142,6 +144,98 @@ router.get("/auth/me", requireAuth, async (req: any, res): Promise<void> => {
     firstName: user.firstName,
     lastName: user.lastName,
     isAdmin: user.isAdmin,
+  });
+});
+
+// ── FORGOT PASSWORD ──────────────────────────────────────────
+
+router.post("/auth/forgot-password", async (req: any, res): Promise<void> => {
+  const { email } = req.body as { email?: string };
+
+  if (!email) {
+    res.status(400).json({ error: "E-mail é obrigatório" });
+    return;
+  }
+
+  const emailNorm = email.trim().toLowerCase();
+
+  const [user] = await db
+    .select({ id: usersTable.id, email: usersTable.email })
+    .from(usersTable)
+    .where(eq(usersTable.email, emailNorm));
+
+  // Always respond 200 to avoid user enumeration
+  if (!user) {
+    res.json({ message: "Se este e-mail estiver cadastrado, você receberá um link em breve." });
+    return;
+  }
+
+  const token = crypto.randomBytes(32).toString("hex");
+  const expiry = new Date(Date.now() + 60 * 60 * 1000); // 1 hora
+
+  await db
+    .update(usersTable)
+    .set({ resetToken: token, resetTokenExpiry: expiry })
+    .where(eq(usersTable.id, user.id));
+
+  const proto = req.headers["x-forwarded-proto"] || req.protocol;
+  const host  = req.headers["x-forwarded-host"] || req.get("host");
+  const resetUrl = `${proto}://${host}/#reset-password?token=${token}`;
+
+  await sendPasswordResetEmail(user.email, resetUrl, req.log);
+
+  res.json({ message: "Se este e-mail estiver cadastrado, você receberá um link em breve." });
+});
+
+// ── RESET PASSWORD ────────────────────────────────────────────
+
+router.post("/auth/reset-password", async (req, res): Promise<void> => {
+  const { token, password } = req.body as { token?: string; password?: string };
+
+  if (!token || !password) {
+    res.status(400).json({ error: "Token e senha são obrigatórios" });
+    return;
+  }
+  if (password.length < 6) {
+    res.status(400).json({ error: "Senha deve ter pelo menos 6 caracteres" });
+    return;
+  }
+
+  const now = new Date();
+
+  const [user] = await db
+    .select()
+    .from(usersTable)
+    .where(
+      and(
+        eq(usersTable.resetToken, token),
+        gt(usersTable.resetTokenExpiry!, now),
+      ),
+    );
+
+  if (!user) {
+    res.status(400).json({ error: "Link inválido ou expirado. Solicite um novo." });
+    return;
+  }
+
+  const passwordHash = await bcrypt.hash(password, 12);
+
+  await db
+    .update(usersTable)
+    .set({ passwordHash, resetToken: null, resetTokenExpiry: null })
+    .where(eq(usersTable.id, user.id));
+
+  const jwtToken = signToken({ userId: user.id, email: user.email, isAdmin: user.isAdmin });
+
+  res.json({
+    token: jwtToken,
+    user: {
+      id: user.id,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      isAdmin: user.isAdmin,
+    },
   });
 });
 

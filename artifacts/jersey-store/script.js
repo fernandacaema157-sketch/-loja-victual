@@ -425,6 +425,8 @@ async function handleRoute() {
       case 'track':           await renderTrack(params); break;
       case 'sign-in':         await renderSignIn(); break;
       case 'sign-up':         await renderSignUp(); break;
+      case 'forgot-password': await renderForgotPassword(); break;
+      case 'reset-password':  await renderResetPassword(params); break;
       default:
         app.innerHTML = `<div class="empty-state page" style="min-height:80vh">
           <div class="empty-icon">404</div>
@@ -1866,7 +1868,8 @@ async function renderSignIn() {
           <label for="si-password">Senha</label>
           <input id="si-password" type="password" name="password" placeholder="••••••••" autocomplete="current-password" required />
         </div>
-        <button type="submit" class="btn btn-primary" style="width:100%;margin-top:.5rem" id="si-btn">Entrar</button>
+          <button type="submit" class="btn btn-primary" style="width:100%;margin-top:.5rem" id="si-btn">Entrar</button>
+        <p style="text-align:center;margin:.75rem 0 0"><a href="#forgot-password" style="color:var(--muted);font-size:.82rem;text-decoration:none;hover:underline">Esqueceu a senha?</a></p>
       </form>
       <p class="auth-switch">Não tem conta? <a href="#sign-up">Cadastrar</a></p>
     </div>
@@ -1964,6 +1967,120 @@ async function renderSignUp() {
       err.textContent = ex.message;
       err.style.display = 'block';
       btn.disabled = false; btn.textContent = 'Criar Conta';
+    }
+  });
+}
+
+// ── FORGOT PASSWORD ──────────────────────────────────────────
+
+async function renderForgotPassword() {
+  if (isLoggedIn()) { navigate('#shop'); return; }
+  const app = document.getElementById('app');
+  app.innerHTML = `
+  <div class="auth-page">
+    <div class="auth-card">
+      <div class="auth-logo">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      </div>
+      <h1 class="auth-title">Esqueceu a Senha?</h1>
+      <p class="auth-subtitle">Informe seu e-mail e enviaremos um link para redefinir a senha.</p>
+      <div id="auth-error" class="auth-error" style="display:none"></div>
+      <div id="auth-success" class="auth-success" style="display:none"></div>
+      <form id="forgot-form" class="auth-form" novalidate>
+        <div class="form-group">
+          <label for="fp-email">E-mail</label>
+          <input id="fp-email" type="email" name="email" placeholder="seu@email.com" autocomplete="email" required />
+        </div>
+        <button type="submit" class="btn btn-primary" style="width:100%;margin-top:.5rem" id="fp-btn">Enviar link</button>
+      </form>
+      <p class="auth-switch"><a href="#sign-in">← Voltar ao login</a></p>
+    </div>
+  </div>`;
+
+  document.getElementById('forgot-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn   = document.getElementById('fp-btn');
+    const err   = document.getElementById('auth-error');
+    const ok    = document.getElementById('auth-success');
+    const email = document.getElementById('fp-email').value.trim();
+    btn.disabled = true; btn.textContent = 'Enviando...';
+    err.style.display = 'none'; ok.style.display = 'none';
+    try {
+      const { message } = await apiFetch('/auth/forgot-password', {
+        method: 'POST',
+        body: JSON.stringify({ email }),
+      });
+      ok.textContent = message;
+      ok.style.display = 'block';
+      document.getElementById('forgot-form').style.display = 'none';
+    } catch (ex) {
+      err.textContent = ex.message;
+      err.style.display = 'block';
+      btn.disabled = false; btn.textContent = 'Enviar link';
+    }
+  });
+}
+
+// ── RESET PASSWORD ────────────────────────────────────────────
+
+async function renderResetPassword(params) {
+  if (isLoggedIn()) { navigate('#shop'); return; }
+  const { token } = params;
+  const app = document.getElementById('app');
+  app.innerHTML = `
+  <div class="auth-page">
+    <div class="auth-card">
+      <div class="auth-logo">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      </div>
+      <h1 class="auth-title">Nova Senha</h1>
+      <p class="auth-subtitle">Crie uma nova senha para sua conta.</p>
+      ${!token ? `<div class="auth-error">Link inválido. <a href="#forgot-password">Solicite um novo.</a></div>` : `
+      <div id="auth-error" class="auth-error" style="display:none"></div>
+      <form id="reset-form" class="auth-form" novalidate>
+        <div class="form-group">
+          <label for="rp-password">Nova senha <span style="color:var(--muted);font-weight:400;font-size:.78rem">(mínimo 6 caracteres)</span></label>
+          <input id="rp-password" type="password" name="password" placeholder="••••••••" autocomplete="new-password" required />
+        </div>
+        <div class="form-group">
+          <label for="rp-confirm">Confirmar senha</label>
+          <input id="rp-confirm" type="password" name="confirm" placeholder="••••••••" autocomplete="new-password" required />
+        </div>
+        <button type="submit" class="btn btn-primary" style="width:100%;margin-top:.5rem" id="rp-btn">Salvar nova senha</button>
+      </form>`}
+      <p class="auth-switch"><a href="#sign-in">← Voltar ao login</a></p>
+    </div>
+  </div>`;
+
+  if (!token) return;
+
+  document.getElementById('reset-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn      = document.getElementById('rp-btn');
+    const err      = document.getElementById('auth-error');
+    const password = document.getElementById('rp-password').value;
+    const confirm  = document.getElementById('rp-confirm').value;
+    err.style.display = 'none';
+    if (password !== confirm) {
+      err.textContent = 'As senhas não coincidem.';
+      err.style.display = 'block';
+      return;
+    }
+    btn.disabled = true; btn.textContent = 'Salvando...';
+    try {
+      const { token: jwt, user } = await apiFetch('/auth/reset-password', {
+        method: 'POST',
+        body: JSON.stringify({ token, password }),
+      });
+      authSetSession(jwt, user);
+      await mergeLocalCartToServer();
+      updateNavbar();
+      toast('Senha redefinida com sucesso!');
+      navigate('#shop');
+    } catch (ex) {
+      err.textContent = ex.message;
+      err.style.display = 'block';
+      btn.disabled = false; btn.textContent = 'Salvar nova senha';
     }
   });
 }
