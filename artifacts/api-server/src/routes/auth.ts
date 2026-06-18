@@ -147,6 +147,82 @@ router.get("/auth/me", requireAuth, async (req: any, res): Promise<void> => {
   });
 });
 
+// ── UPDATE PROFILE ───────────────────────────────────────────
+
+router.put("/auth/profile", requireAuth, async (req: any, res): Promise<void> => {
+  const { firstName, lastName } = req.body as { firstName?: string; lastName?: string };
+
+  const [user] = await db
+    .update(usersTable)
+    .set({
+      firstName: firstName?.trim() || null,
+      lastName:  lastName?.trim()  || null,
+    })
+    .where(eq(usersTable.id, req.userIdNum))
+    .returning();
+
+  if (!user) {
+    res.status(404).json({ error: "Usuário não encontrado" });
+    return;
+  }
+
+  res.json({
+    id: user.id,
+    email: user.email,
+    firstName: user.firstName,
+    lastName:  user.lastName,
+    isAdmin:   user.isAdmin,
+  });
+});
+
+// ── CHANGE PASSWORD ──────────────────────────────────────────
+
+router.put("/auth/change-password", requireAuth, async (req: any, res): Promise<void> => {
+  const { currentPassword, newPassword } = req.body as {
+    currentPassword?: string;
+    newPassword?: string;
+  };
+
+  if (!currentPassword || !newPassword) {
+    res.status(400).json({ error: "Senha atual e nova senha são obrigatórias" });
+    return;
+  }
+  if (newPassword.length < 6) {
+    res.status(400).json({ error: "Nova senha deve ter pelo menos 6 caracteres" });
+    return;
+  }
+
+  const [user] = await db
+    .select()
+    .from(usersTable)
+    .where(eq(usersTable.id, req.userIdNum));
+
+  if (!user) {
+    res.status(404).json({ error: "Usuário não encontrado" });
+    return;
+  }
+
+  // Google-only accounts have no password
+  if (!user.passwordHash) {
+    res.status(400).json({ error: "Esta conta usa login com Google. Use 'Esqueceu a senha?' para definir uma senha." });
+    return;
+  }
+
+  const match = await bcrypt.compare(currentPassword, user.passwordHash);
+  if (!match) {
+    res.status(401).json({ error: "Senha atual incorreta" });
+    return;
+  }
+
+  const passwordHash = await bcrypt.hash(newPassword, 12);
+  await db
+    .update(usersTable)
+    .set({ passwordHash })
+    .where(eq(usersTable.id, user.id));
+
+  res.json({ message: "Senha alterada com sucesso" });
+});
+
 // ── FORGOT PASSWORD ──────────────────────────────────────────
 
 router.post("/auth/forgot-password", async (req: any, res): Promise<void> => {

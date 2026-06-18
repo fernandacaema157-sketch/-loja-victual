@@ -422,6 +422,10 @@ async function handleRoute() {
         if (!isLoggedIn()) { navigate('#sign-in'); return; }
         await renderAdminProducts();
         break;
+      case 'profile':
+        if (!isLoggedIn()) { navigate('#sign-in'); return; }
+        await renderProfile();
+        break;
       case 'track':           await renderTrack(params); break;
       case 'sign-in':         await renderSignIn(); break;
       case 'sign-up':         await renderSignUp(); break;
@@ -1971,6 +1975,141 @@ async function renderSignUp() {
   });
 }
 
+// ── PROFILE ───────────────────────────────────────────────────
+
+async function renderProfile() {
+  const app = document.getElementById('app');
+  const user = state.user;
+  const hasPassword = !user?.email; // will be determined by trying; start optimistic
+
+  app.innerHTML = `
+  <div class="page">
+    <div class="page-inner" style="max-width:640px">
+      <div style="margin-bottom:2rem">
+        <h1 style="font-size:1.6rem;font-weight:900">Meu Perfil</h1>
+        <p style="color:var(--muted);font-size:.85rem">Gerencie suas informações pessoais e segurança</p>
+      </div>
+
+      <!-- Avatar + info banner -->
+      <div class="profile-banner">
+        <div class="profile-avatar-lg">${(user?.firstName?.[0] || user?.email?.[0] || 'U').toUpperCase()}</div>
+        <div>
+          <div style="font-weight:800;font-size:1.1rem">${user?.firstName && user?.lastName ? `${user.firstName} ${user.lastName}` : user?.firstName || user?.email?.split('@')[0]}</div>
+          <div style="color:var(--muted);font-size:.85rem">${user?.email}</div>
+          ${user?.isAdmin ? `<span class="badge-admin">Admin</span>` : ''}
+        </div>
+      </div>
+
+      <!-- Personal info card -->
+      <div class="profile-card">
+        <h2 class="profile-card-title">Informações Pessoais</h2>
+        <div id="profile-info-error" class="auth-error" style="display:none"></div>
+        <div id="profile-info-success" class="auth-success" style="display:none"></div>
+        <form id="profile-info-form" class="auth-form" novalidate style="gap:.85rem">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem">
+            <div class="form-group">
+              <label for="pf-fname">Nome</label>
+              <input id="pf-fname" type="text" value="${user?.firstName || ''}" placeholder="João" autocomplete="given-name" />
+            </div>
+            <div class="form-group">
+              <label for="pf-lname">Sobrenome</label>
+              <input id="pf-lname" type="text" value="${user?.lastName || ''}" placeholder="Silva" autocomplete="family-name" />
+            </div>
+          </div>
+          <div class="form-group">
+            <label>E-mail</label>
+            <input type="email" value="${user?.email || ''}" disabled style="opacity:.5;cursor:not-allowed" />
+            <span style="color:var(--muted);font-size:.75rem">O e-mail não pode ser alterado</span>
+          </div>
+          <button type="submit" class="btn btn-primary" id="pf-info-btn" style="width:fit-content;padding:.55rem 1.5rem">Salvar alterações</button>
+        </form>
+      </div>
+
+      <!-- Change password card -->
+      <div class="profile-card" id="change-pw-card">
+        <h2 class="profile-card-title">Alterar Senha</h2>
+        <div id="profile-pw-error" class="auth-error" style="display:none"></div>
+        <div id="profile-pw-success" class="auth-success" style="display:none"></div>
+        <form id="profile-pw-form" class="auth-form" novalidate style="gap:.85rem">
+          <div class="form-group">
+            <label for="pf-cur-pw">Senha atual</label>
+            <input id="pf-cur-pw" type="password" placeholder="••••••••" autocomplete="current-password" />
+          </div>
+          <div class="form-group">
+            <label for="pf-new-pw">Nova senha <span style="color:var(--muted);font-weight:400;font-size:.78rem">(mínimo 6 caracteres)</span></label>
+            <input id="pf-new-pw" type="password" placeholder="••••••••" autocomplete="new-password" />
+          </div>
+          <div class="form-group">
+            <label for="pf-conf-pw">Confirmar nova senha</label>
+            <input id="pf-conf-pw" type="password" placeholder="••••••••" autocomplete="new-password" />
+          </div>
+          <button type="submit" class="btn btn-primary" id="pf-pw-btn" style="width:fit-content;padding:.55rem 1.5rem">Alterar senha</button>
+        </form>
+      </div>
+    </div>
+  </div>`;
+
+  // ── Personal info form ──────────────────────────────────────
+  document.getElementById('profile-info-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn     = document.getElementById('pf-info-btn');
+    const err     = document.getElementById('profile-info-error');
+    const ok      = document.getElementById('profile-info-success');
+    const fName   = document.getElementById('pf-fname').value.trim();
+    const lName   = document.getElementById('pf-lname').value.trim();
+    err.style.display = 'none'; ok.style.display = 'none';
+    btn.disabled = true; btn.textContent = 'Salvando...';
+    try {
+      const updated = await apiFetch('/auth/profile', {
+        method: 'PUT',
+        body: JSON.stringify({ firstName: fName, lastName: lName }),
+      });
+      state.user = { ...state.user, ...updated };
+      updateNavbar();
+      ok.textContent = 'Informações atualizadas com sucesso!';
+      ok.style.display = 'block';
+    } catch (ex) {
+      err.textContent = ex.message;
+      err.style.display = 'block';
+    } finally {
+      btn.disabled = false; btn.textContent = 'Salvar alterações';
+    }
+  });
+
+  // ── Change password form ────────────────────────────────────
+  document.getElementById('profile-pw-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn     = document.getElementById('pf-pw-btn');
+    const err     = document.getElementById('profile-pw-error');
+    const ok      = document.getElementById('profile-pw-success');
+    const cur     = document.getElementById('pf-cur-pw').value;
+    const nw      = document.getElementById('pf-new-pw').value;
+    const conf    = document.getElementById('pf-conf-pw').value;
+    err.style.display = 'none'; ok.style.display = 'none';
+    if (nw !== conf) {
+      err.textContent = 'As senhas não coincidem.';
+      err.style.display = 'block'; return;
+    }
+    btn.disabled = true; btn.textContent = 'Alterando...';
+    try {
+      const { message } = await apiFetch('/auth/change-password', {
+        method: 'PUT',
+        body: JSON.stringify({ currentPassword: cur, newPassword: nw }),
+      });
+      ok.textContent = message;
+      ok.style.display = 'block';
+      document.getElementById('pf-cur-pw').value = '';
+      document.getElementById('pf-new-pw').value = '';
+      document.getElementById('pf-conf-pw').value = '';
+    } catch (ex) {
+      err.textContent = ex.message;
+      err.style.display = 'block';
+    } finally {
+      btn.disabled = false; btn.textContent = 'Alterar senha';
+    }
+  });
+}
+
 // ── FORGOT PASSWORD ──────────────────────────────────────────
 
 async function renderForgotPassword() {
@@ -2514,6 +2653,7 @@ function updateNavbar() {
       <span class="user-name">${name}</span>
       <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
       <div class="user-dropdown" id="user-dropdown" style="display:none">
+        <a href="#profile"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Meu Perfil</a>
         <a href="#orders">${ic.orders_icon} Meus Pedidos</a>
         ${isAdmin() ? `<a href="#admin">${ic.dashboard} Dashboard</a>` : ''}
         <div class="divider"></div>
