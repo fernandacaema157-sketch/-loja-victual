@@ -986,6 +986,42 @@ ul { list-style: none; }
 }
 .auth-switch a { color: var(--primary); font-weight: 700; text-decoration: none; }
 .auth-switch a:hover { text-decoration: underline; }
+.btn-oauth {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .6rem;
+  width: 100%;
+  padding: .65rem 1rem;
+  border-radius: var(--radius);
+  font-size: .9rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition: opacity .15s, box-shadow .15s;
+  border: 1px solid var(--border);
+  margin-bottom: .25rem;
+}
+.btn-oauth:hover { opacity: .88; box-shadow: 0 4px 16px rgba(0,0,0,.3); }
+.btn-google {
+  background: #fff;
+  color: #1f1f1f;
+}
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  margin: .75rem 0;
+  color: var(--muted);
+  font-size: .78rem;
+}
+.auth-divider::before,
+.auth-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
 .form-group {
   display: flex;
   flex-direction: column;

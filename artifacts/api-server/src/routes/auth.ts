@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
+import https from "https";
 import { db, usersTable } from "@workspace/db";
 import { signToken, requireAuth } from "../middlewares/jwtMiddleware";
 
@@ -10,6 +11,18 @@ const ADMIN_EMAILS = (process.env.ADMIN_EMAILS ?? "")
   .split(",")
   .map((e) => e.trim().toLowerCase())
   .filter(Boolean);
+
+const GOOGLE_CLIENT_ID     = process.env.GOOGLE_CLIENT_ID ?? "";
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET ?? "";
+
+// Callback URL must match what's registered in Google Cloud Console
+function getGoogleCallbackUrl(req: any): string {
+  const proto = req.headers["x-forwarded-proto"] || req.protocol;
+  const host  = req.headers["x-forwarded-host"] || req.get("host");
+  return `${proto}://${host}/api/auth/google/callback`;
+}
+
+// ── REGISTER ──────────────────────────────────────────────────
 
 router.post("/auth/register", async (req, res): Promise<void> => {
   const { email, password, firstName, lastName } = req.body as {
@@ -68,6 +81,8 @@ router.post("/auth/register", async (req, res): Promise<void> => {
   });
 });
 
+// ── LOGIN ────────────────────────────────────────────────────
+
 router.post("/auth/login", async (req, res): Promise<void> => {
   const { email, password } = req.body as { email?: string; password?: string };
 
@@ -108,6 +123,8 @@ router.post("/auth/login", async (req, res): Promise<void> => {
   });
 });
 
+// ── ME ───────────────────────────────────────────────────────
+
 router.get("/auth/me", requireAuth, async (req: any, res): Promise<void> => {
   const [user] = await db
     .select()
@@ -127,5 +144,132 @@ router.get("/auth/me", requireAuth, async (req: any, res): Promise<void> => {
     isAdmin: user.isAdmin,
   });
 });
+
+// ── GOOGLE OAUTH ─────────────────────────────────────────────
+
+router.get("/auth/google", (req, res): void => {
+  if (!GOOGLE_CLIENT_ID) {
+    res.status(500).json({ error: "Google OAuth não configurado" });
+    return;
+  }
+  const callbackUrl = getGoogleCallbackUrl(req);
+  const params = new URLSearchParams({
+    client_id:     GOOGLE_CLIENT_ID,
+    redirect_uri:  callbackUrl,
+    response_type: "code",
+    scope:         "openid email profile",
+    access_type:   "offline",
+    prompt:        "select_account",
+  });
+  res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
+});
+
+router.get("/auth/google/callback", async (req, res): Promise<void> => {
+  const { code, error } = req.query as { code?: string; error?: string };
+
+  if (error || !code) {
+    res.redirect("/#sign-in?error=google_cancelled");
+    return;
+  }
+
+  try {
+    const callbackUrl = getGoogleCallbackUrl(req);
+
+    // Exchange code for tokens
+    const tokenRes = await httpPost("https://oauth2.googleapis.com/token", {
+      code,
+      client_id:     GOOGLE_CLIENT_ID,
+      client_secret: GOOGLE_CLIENT_SECRET,
+      redirect_uri:  callbackUrl,
+      grant_type:    "authorization_code",
+    });
+
+    const { access_token } = tokenRes as any;
+    if (!access_token) {
+      res.redirect("/#sign-in?error=google_token");
+      return;
+    }
+
+    // Fetch user info from Google
+    const profile = await httpGet(
+      `https://www.googleapis.com/oauth2/v2/userinfo?access_token=${access_token}`,
+    ) as any;
+
+    const email = profile.email?.toLowerCase();
+    if (!email) {
+      res.redirect("/#sign-in?error=google_no_email");
+      return;
+    }
+
+    // Find or create user
+    const [existing] = await db
+      .select()
+      .from(usersTable)
+      .where(eq(usersTable.email, email));
+
+    let user = existing;
+    if (!user) {
+      const isAdmin = ADMIN_EMAILS.includes(email);
+      const [created] = await db
+        .insert(usersTable)
+        .values({
+          email,
+          passwordHash: null,
+          firstName: profile.given_name || null,
+          lastName:  profile.family_name || null,
+          isAdmin,
+        })
+        .returning();
+      user = created;
+    }
+
+    const token = signToken({ userId: user.id, email: user.email, isAdmin: user.isAdmin });
+
+    // Redirect back to SPA with token
+    res.redirect(`/#oauth-callback?token=${encodeURIComponent(token)}`);
+  } catch (err) {
+    res.redirect("/#sign-in?error=google_failed");
+  }
+});
+
+// ── HELPERS ──────────────────────────────────────────────────
+
+function httpPost(url: string, body: Record<string, string>): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const payload = new URLSearchParams(body).toString();
+    const u = new URL(url);
+    const options = {
+      hostname: u.hostname,
+      path: u.pathname,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Content-Length": Buffer.byteLength(payload),
+      },
+    };
+    const req = https.request(options, (r) => {
+      let data = "";
+      r.on("data", (c) => { data += c; });
+      r.on("end", () => {
+        try { resolve(JSON.parse(data)); } catch { reject(new Error("Invalid JSON")); }
+      });
+    });
+    req.on("error", reject);
+    req.write(payload);
+    req.end();
+  });
+}
+
+function httpGet(url: string): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    https.get(url, (r) => {
+      let data = "";
+      r.on("data", (c) => { data += c; });
+      r.on("end", () => {
+        try { resolve(JSON.parse(data)); } catch { reject(new Error("Invalid JSON")); }
+      });
+    }).on("error", reject);
+  });
+}
 
 export default router;
