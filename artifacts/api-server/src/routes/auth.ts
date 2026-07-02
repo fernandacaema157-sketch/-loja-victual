@@ -317,12 +317,19 @@ router.post("/auth/reset-password", async (req, res): Promise<void> => {
 
 // ── GOOGLE OAUTH ─────────────────────────────────────────────
 
-router.get("/auth/google", (req, res): void => {
+// Debug: see exactly which callback URL is being used
+router.get("/auth/google/debug", (req: any, res): void => {
+  const callbackUrl = getGoogleCallbackUrl(req);
+  res.json({ callbackUrl, clientIdSet: !!GOOGLE_CLIENT_ID, clientSecretSet: !!GOOGLE_CLIENT_SECRET });
+});
+
+router.get("/auth/google", (req: any, res): void => {
   if (!GOOGLE_CLIENT_ID) {
     res.status(500).json({ error: "Google OAuth não configurado" });
     return;
   }
   const callbackUrl = getGoogleCallbackUrl(req);
+  req.log.info({ callbackUrl }, "Google OAuth redirect");
   const params = new URLSearchParams({
     client_id:     GOOGLE_CLIENT_ID,
     redirect_uri:  callbackUrl,
@@ -334,11 +341,18 @@ router.get("/auth/google", (req, res): void => {
   res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
 });
 
-router.get("/auth/google/callback", async (req, res): Promise<void> => {
-  const { code, error } = req.query as { code?: string; error?: string };
+router.get("/auth/google/callback", async (req: any, res): Promise<void> => {
+  const { code, error, error_description } = req.query as {
+    code?: string;
+    error?: string;
+    error_description?: string;
+  };
+
+  req.log.info({ code: !!code, error, error_description }, "Google OAuth callback received");
 
   if (error || !code) {
-    res.redirect("/#sign-in?error=google_cancelled");
+    req.log.warn({ error, error_description }, "Google OAuth denied/cancelled");
+    res.redirect(`/#sign-in?error=${encodeURIComponent(error || 'google_cancelled')}`);
     return;
   }
 
@@ -354,8 +368,9 @@ router.get("/auth/google/callback", async (req, res): Promise<void> => {
       grant_type:    "authorization_code",
     });
 
-    const { access_token } = tokenRes as any;
+    const { access_token, error: tokenError, error_description: tokenDesc } = tokenRes as any;
     if (!access_token) {
+      req.log.error({ tokenError, tokenDesc, tokenRes }, "Google token exchange failed");
       res.redirect("/#sign-in?error=google_token");
       return;
     }
